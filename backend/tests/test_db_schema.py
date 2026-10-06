@@ -1,0 +1,104 @@
+"""Интеграционные тесты схемы на реальном PostgreSQL.
+
+Запуск: TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/booking_test pytest
+ВНИМАНИЕ: тест удаляет и пересоздаёт все таблицы в этой БД.
+"""
+import os
+from pathlib import Path
+
+import pytest
+
+DB_URL = os.environ.get("TEST_DATABASE_URL")
+pytestmark = pytest.mark.skipif(not DB_URL, reason="TEST_DATABASE_URL не задан")
+
+BACKEND = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module")
+def engine():
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine
+
+    cfg = Config(str(BACKEND / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND / "migrations"))
+    cfg.cmd_opts = type("Opts", (), {"x": [f"db_url={DB_URL}"]})()
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "head")
+    eng = create_engine(DB_URL)
+    yield eng
+    eng.dispose()
+
+
+@pytest.fixture
+def session(engine):
+    from sqlalchemy.orm import Session
+
+    with engine.connect() as conn:
+        tx = conn.begin()
+        with Session(bind=conn, join_transaction_mode="create_savepoint") as s:
+            yield s
+        tx.rollback()
+
+
+def _seed(session):
+    import datetime as dt
+
+    from app.models import Client, Master, Service
+
+    master = Master(slug="anna_nails", name="Анна", timezone="Asia/Anadyr")
+    session.add(master)
+    session.flush()
+    service = Service(master_id=master.id, name="Маникюр", duration_min=90, price=1500)
+    client = Client(master_id=master.id, name="Ольга")
+    session.add_all([service, client])
+    session.flush()
+    start = dt.datetime(2026, 10, 10, 10, 0, tzinfo=dt.timezone(dt.timedelta(hours=12)))
+    return master, service, client, start
+
+
+def _appt(master, client, start, minutes, status="confirmed"):
+    import datetime as dt
+
+    from app.models import Appointment
+
+    return Appointment(
+        master_id=master.id, client_id=client.id, service_name="Маникюр",
+        starts_at=start, ends_at=start + dt.timedelta(minutes=minutes),
+        status=status, source="max",
+    )
+
+
+def test_orm_roundtrip_and_defaults(session):
+    from app.models import Appointment
+
+    master, _, client, start = _seed(session)
+    session.add(_appt(master, client, start, 90))
+    session.flush()
+    appt = session.query(Appointment).one()
+    assert appt.status == "confirmed"
+    session.refresh(master)
+    assert master.slot_step_min == 15
+
+
+def test_overlapping_active_appointments_rejected(session):
+    import datetime as dt
+
+    from sqlalchemy.exc import IntegrityError
+
+    master, _, client, start = _seed(session)
+    session.add(_appt(master, client, start, 90))
+    session.flush()
+    session.add(_appt(master, client, start + dt.timedelta(minutes=30), 60))
+    with pytest.raises(IntegrityError, match="ex_appointments_no_overlap"):
+        session.flush()
+
+
+def test_touching_and_cancelled_appointments_allowed(session):
+    import datetime as dt
+
+    master, _, client, start = _seed(session)
+    session.add(_appt(master, client, start, 90))
+    session.add(_appt(master, client, start + dt.timedelta(minutes=90), 60))
+    session.add(_appt(master, client, start + dt.timedelta(minutes=30), 60, status="cancelled"))
+    session.flush()
