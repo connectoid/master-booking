@@ -1,7 +1,12 @@
 # master-booking
 
-Онлайн-запись для частных мастеров с напоминаниями клиентам в MAX (затем Telegram и браузер).
-Архитектура и решения — в [CLAUDE.md](CLAUDE.md).
+Онлайн-запись для частных мастеров с напоминаниями клиентам в MAX, Telegram и браузере.
+
+## Стек
+- Python 3.12, FastAPI, SQLAlchemy 2.0 (async, asyncpg), Alembic, PostgreSQL 16.
+- MAX: неофициальная `maxapi` или прямые HTTP-вызовы — держать адаптер тонким.
+- Telegram: aiogram 3.
+- Фронтенд: React + MAX UI (решим на этапе Mini App).
 
 ## Быстрый старт (на VPS)
 
