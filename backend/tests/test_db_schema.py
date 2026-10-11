@@ -3,29 +3,14 @@
 Запуск: TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/booking_test pytest
 ВНИМАНИЕ: тест удаляет и пересоздаёт все таблицы в этой БД.
 """
-import os
-from pathlib import Path
-
 import pytest
-
-DB_URL = os.environ.get("TEST_DATABASE_URL")
-pytestmark = pytest.mark.skipif(not DB_URL, reason="TEST_DATABASE_URL не задан")
-
-BACKEND = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(scope="module")
-def engine():
-    from alembic import command
-    from alembic.config import Config
+def engine(migrated_db):
     from sqlalchemy import create_engine
 
-    cfg = Config(str(BACKEND / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BACKEND / "migrations"))
-    cfg.cmd_opts = type("Opts", (), {"x": [f"db_url={DB_URL}"]})()
-    command.downgrade(cfg, "base")
-    command.upgrade(cfg, "head")
-    eng = create_engine(DB_URL)
+    eng = create_engine(migrated_db)
     yield eng
     eng.dispose()
 

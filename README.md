@@ -26,3 +26,16 @@ uvicorn app.main:app --reload
 ```bash
 TEST_DATABASE_URL=postgresql+psycopg://booking:booking@localhost:5432/booking_test pytest
 ```
+
+## API клиента (Mini App)
+
+| Метод | Путь | Вход |
+|---|---|---|
+| GET | `/api/masters/{slug}` — мастер и активные услуги | нет |
+| GET | `/api/masters/{slug}/slots?service_id=&date_from=&days=` — свободные слоты | нет |
+| POST | `/api/masters/{slug}/appointments` — записаться | да |
+| GET | `/api/masters/{slug}/appointments/my` — мои предстоящие записи | да |
+| POST | `/api/appointments/{id}/cancel` — отменить свою запись | да |
+
+Вход: заголовки `X-Channel: max|telegram` и `Authorization: tma <initData>`.
+Документация с примерами — `/docs` после запуска `uvicorn app.main:app`.

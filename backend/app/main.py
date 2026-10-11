@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="master-booking")
+from app.api.public import router as public_router
+
+app = FastAPI(title="Окошко — запись к мастеру")
+app.include_router(public_router)
 
 
 @app.get("/health")
