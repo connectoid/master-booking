@@ -62,3 +62,10 @@ TEST_DATABASE_URL=postgresql+psycopg://booking:booking@localhost:5432/booking_te
    `PUBLIC_BASE_URL=https://<домен>`.
 3. `alembic upgrade head`, перезапуск сервиса.
 4. Подписка на вебхук: `python -m app.channels.max.setup` (статус: `--status`, отписка: `--remove`).
+
+## Mini App
+
+Страница записи для клиента — `webapp/` (без сборки), раздаётся бэкендом по `https://<домен>/app/`.
+В платформе MAX: **Чат-боты → ⋮ → Настройки** → ссылка на мини-приложение `https://<домен>/app/`.
+Ссылка для клиентов: `https://max.ru/<бот>?startapp=<slug>` (бот выдаёт её мастеру сам).
+Просмотр в браузере без записи: `https://<домен>/app/?m=<slug>`.

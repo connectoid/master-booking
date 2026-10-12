@@ -2,8 +2,10 @@ import asyncio
 import contextlib
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api.public import router as public_router
 from app.channels.max.adapter import MaxMessenger
@@ -25,10 +27,14 @@ async def lifespan(app: FastAPI):
     runtime.session_factory = SessionLocal
     max_client = None
     if settings.max_bot_token:
-        max_client = MaxClient(
-            settings.max_bot_token, base_url=settings.max_api_base,
-            ca_file=settings.max_ca_file or None,
-        )
+        try:
+            max_client = MaxClient(
+                settings.max_bot_token, base_url=settings.max_api_base,
+                ca_file=settings.max_ca_file or None,
+            )
+        except Exception as e:  # битый файл сертификата и т.п. — API продолжает работать
+            log.error("MAX отключён: не удалось создать клиент (MAX_CA_FILE?): %s", e)
+    if max_client is not None:
         runtime.messengers[Channel.MAX] = MaxMessenger(max_client)
         username = settings.max_bot_username
         if not username:
@@ -57,6 +63,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Окошко — запись к мастеру", lifespan=lifespan)
 app.include_router(public_router)
 app.include_router(max_router)
+
+
+WEBAPP_DIR = Path(__file__).resolve().parents[2] / "webapp"
+if WEBAPP_DIR.is_dir():
+    app.mount("/app", StaticFiles(directory=WEBAPP_DIR, html=True), name="webapp")
 
 
 @app.get("/health")

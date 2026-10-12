@@ -1,5 +1,11 @@
-# webapp — Mini App
+# webapp — Mini App записи
 
-Одно фронтенд-приложение для MAX, Telegram и браузера. Будет сделано на этапе Mini App.
-Платформа определяется при запуске: MAX Bridge (`window.WebApp`), Telegram (`window.Telegram.WebApp`)
-или обычная страница. initData отправляется на бэкенд в заголовке и проверяется там.
+Одна страница без сборки (HTML + CSS + JS), раздаётся бэкендом по адресу `/app/`.
+
+- **MAX**: подключается MAX Bridge (`window.WebApp`), slug мастера приходит в
+  `initDataUnsafe.start_param` из ссылки `https://max.ru/<бот>?startapp=<slug>`.
+- **Telegram** (позже): `window.Telegram.WebApp` — код уже определяет платформу.
+- **Браузер**: `https://<домен>/app/?m=<slug>` — только просмотр услуг и времени.
+
+Запросы к API подписываются заголовками `Authorization: tma <initData>` и `X-Channel`.
+Экраны: услуги → день и время → подтверждение → готово; «Мои записи» с отменой.
