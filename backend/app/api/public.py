@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
@@ -15,8 +15,10 @@ from app.api.schemas import (
     SlotsDay,
     SlotsOut,
 )
+from app import notify
 from app.db import get_session
 from app.models import Appointment
+from app.runtime import runtime
 from app.services import booking
 
 router = APIRouter(prefix="/api", tags=["client"])
@@ -94,7 +96,11 @@ async def get_slots(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_appointment(
-    slug: str, body: AppointmentCreate, user: CurrentUser, session: Session
+    slug: str,
+    body: AppointmentCreate,
+    user: CurrentUser,
+    session: Session,
+    background: BackgroundTasks,
 ) -> AppointmentOut:
     try:
         master = await booking.get_master(session, slug)
@@ -105,6 +111,7 @@ async def create_appointment(
         )
     except booking.BookingError as e:
         raise _http(e) from e
+    background.add_task(notify.appointment_created, appointment.id)
     return _appointment_out(appointment, ZoneInfo(master.timezone))
 
 
@@ -127,5 +134,7 @@ async def cancel_appointment(
         appointment = await booking.cancel_appointment_by_client(session, appointment_id, user)
     except booking.BookingError as e:
         raise _http(e) from e
+    if runtime.messengers:
+        await notify.appointment_cancelled_by_client(session, appointment.id)
     master = await session.get(booking.Master, appointment.master_id)
     return _appointment_out(appointment, ZoneInfo(master.timezone))

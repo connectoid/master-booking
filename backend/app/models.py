@@ -20,6 +20,7 @@ from sqlalchemy import (
     Time,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -211,3 +212,17 @@ class Reminder(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
 
     appointment: Mapped[Appointment] = relationship(back_populates="reminders")
+
+
+class BotState(Base):
+    """Состояние многошагового диалога с ботом."""
+
+    __tablename__ = "bot_states"
+
+    channel: Mapped[str] = mapped_column(String(16), primary_key=True)
+    external_user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    state: Mapped[str | None] = mapped_column(String(32))
+    data: Mapped[dict] = mapped_column(JSONB, server_default="{}")
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

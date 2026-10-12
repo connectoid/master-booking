@@ -12,6 +12,16 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     initdata_max_age_hours: int = 24
 
+    # MAX
+    max_api_base: str = "https://platform-api2.max.ru"
+    max_webhook_secret: str = ""   # 5–256 символов: латиница, цифры, _ и -
+    max_bot_username: str = ""     # ник бота (idИНН_bot); пусто — спросим у API при старте
+    max_ca_file: str = ""          # доп. корневой сертификат (Минцифры), если не установлен в систему
+
+    # Фоновая отправка напоминаний
+    reminders_enabled: bool = True
+    reminders_interval_sec: int = 30
+
     @property
     def sync_database_url(self) -> str:
         """URL для Alembic (синхронный драйвер psycopg)."""
