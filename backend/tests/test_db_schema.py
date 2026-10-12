@@ -17,7 +17,12 @@ def engine(migrated_db):
 
 @pytest.fixture
 def session(engine):
+    from sqlalchemy import text
     from sqlalchemy.orm import Session
+
+    # другие тесты (test_api) коммитят данные — начинаем с пустой базы
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE masters RESTART IDENTITY CASCADE"))
 
     with engine.connect() as conn:
         tx = conn.begin()

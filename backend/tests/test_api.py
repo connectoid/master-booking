@@ -68,6 +68,8 @@ async def ctx(migrated_db):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client, engine
     app.dependency_overrides.clear()
+    async with engine.begin() as conn:  # не оставляем данные другим тестам
+        await conn.execute(text("TRUNCATE masters RESTART IDENTITY CASCADE"))
     await engine.dispose()
 
 
