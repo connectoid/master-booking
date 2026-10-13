@@ -244,3 +244,32 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
 .sel-bar .row .btn { margin-top: 8px; }
 .sel-bar .interval { margin-top: 8px; }
 .special .grow { flex: 1; min-width: 0; }
+
+/* настройки */
+.tabs .tab { font-size: 14px; }
+.set-title { font-weight: 600; margin: 14px 0 8px; }
+.card > .set-title:first-child { margin-top: 2px; }
+.set-hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg-btn {
+  padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+  color: inherit; font: inherit; font-size: 14px; cursor: pointer;
+}
+.seg-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.link-box {
+  padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px dashed var(--line);
+  font-size: 14px; word-break: break-all; user-select: all; -webkit-user-select: all;
+}
+.card .btn.secondary { margin-top: 10px; }
+.select {
+  width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); font: inherit;
+}
+.row .btn.small-btn { flex: none; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  max-width: calc(100% - 32px); width: max-content; z-index: 10;
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}

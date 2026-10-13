@@ -220,7 +220,10 @@ async def appointments_on_days(
 
 # ---------- настройки ----------
 
-SETTINGS_FIELDS = {"min_lead_min", "horizon_days", "one_booking_per_day", "timezone"}
+SETTINGS_FIELDS = {
+    "name", "min_lead_min", "horizon_days", "one_booking_per_day", "timezone",
+    "slot_step_min", "buffer_min",
+}
 
 
 async def update_settings(session: AsyncSession, master: Master, **fields) -> None:

@@ -64,17 +64,23 @@ class WeeklySchedule(BaseModel):
 
 
 class Settings(BaseModel):
+    name: str
     min_lead_min: int
     horizon_days: int
     one_booking_per_day: bool
     timezone: str
+    slot_step_min: int
+    buffer_min: int
 
 
 class SettingsPatch(BaseModel):
+    name: str | None = Field(default=None, max_length=60)
     min_lead_min: int | None = None
     horizon_days: int | None = None
     one_booking_per_day: bool | None = None
     timezone: str | None = None
+    slot_step_min: int | None = None
+    buffer_min: int | None = None
 
 
 class Override(BaseModel):
@@ -105,6 +111,8 @@ class CabinetOut(BaseModel):
     timezones: list[dict[str, str]]
     lead_options: list[dict]
     horizon_options: list[int]
+    step_options: list[int]
+    buffer_options: list[int]
 
 
 # ---------- помощники ----------
@@ -124,8 +132,9 @@ def _weekly_out(weekly) -> WeeklySchedule:
 
 
 def _settings_out(m: Master) -> Settings:
-    return Settings(min_lead_min=m.min_lead_min, horizon_days=m.horizon_days,
-                    one_booking_per_day=m.one_booking_per_day, timezone=m.timezone)
+    return Settings(name=m.name, min_lead_min=m.min_lead_min, horizon_days=m.horizon_days,
+                    one_booking_per_day=m.one_booking_per_day, timezone=m.timezone,
+                    slot_step_min=m.slot_step_min, buffer_min=m.buffer_min)
 
 
 def _client_link(master: Master, channel: Channel) -> str | None:
@@ -151,6 +160,8 @@ async def me(master: CurrentMaster, user: CurrentUser, session: Session) -> Cabi
         timezones=[{"id": tz, "title": title} for title, tz in texts.TIMEZONES],
         lead_options=[{"minutes": v, "title": t} for v, t in texts.LEAD_OPTIONS],
         horizon_options=texts.HORIZON_OPTIONS,
+        step_options=texts.STEP_OPTIONS,
+        buffer_options=texts.BUFFER_OPTIONS,
     )
 
 
@@ -177,6 +188,14 @@ async def patch_settings(body: SettingsPatch, master: CurrentMaster, session: Se
         raise HTTPException(422, "Недопустимый горизонт записи")
     if "timezone" in fields and fields["timezone"] not in texts.TIMEZONE_IDS:
         raise HTTPException(422, "Недопустимый часовой пояс")
+    if "slot_step_min" in fields and fields["slot_step_min"] not in texts.STEP_OPTIONS:
+        raise HTTPException(422, "Недопустимый шаг времени")
+    if "buffer_min" in fields and fields["buffer_min"] not in texts.BUFFER_OPTIONS:
+        raise HTTPException(422, "Недопустимая пауза между клиентами")
+    if "name" in fields:
+        fields["name"] = " ".join(fields["name"].split())
+        if len(fields["name"]) < 2:
+            raise HTTPException(422, "Имя должно быть не короче 2 символов")
     await ms.update_settings(session, master, **fields)
     await session.commit()
     return _settings_out(master)

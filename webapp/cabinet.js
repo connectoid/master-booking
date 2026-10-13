@@ -9,7 +9,8 @@
   const app = document.getElementById("app");
 
   const state = {
-    tab: "appointments", // appointments | schedule | days
+    tab: "appointments", // appointments | schedule | days | settings
+    nameDraft: null,     // имя для клиентов, пока мастер его редактирует
     cal: null,           // календарь особых дней: {month, overrides, counts, selected, range, mode, ...}
     view: "list",        // list | new (внутри вкладки «Записи»)
     appts: null,         // записи на 14 дней
@@ -673,6 +674,121 @@
     ];
   }
 
+  // ---------- настройки ----------
+  let toastTimer = null;
+  async function patchSettings(patch, okText) {
+    state.error = "";
+    try {
+      state.me.settings = await api("/cabinet/settings", { method: "PATCH", body: JSON.stringify(patch) });
+      state.me.name = state.me.settings.name;
+      state.notice = okText || "Сохранено";
+      haptic("success");
+    } catch (e) {
+      state.error = e.message;
+      state.notice = "";
+      haptic("error");
+    }
+    render();
+  }
+
+  function choice(options, current, onPick) {
+    return h("div", { class: "seg" }, options.map(([value, title]) =>
+      h("button", {
+        class: "seg-btn" + (value === current ? " active" : ""),
+        onclick: () => { if (value !== current) onPick(value); },
+      }, title)));
+  }
+
+  async function copyLink(link) {
+    try {
+      await navigator.clipboard.writeText(link);
+      state.notice = "Ссылка скопирована — отправьте её клиентам или добавьте в профиль";
+      haptic("success");
+    } catch (_) {
+      state.notice = "Не получилось скопировать автоматически — выделите ссылку и скопируйте вручную";
+    }
+    render();
+  }
+
+  function viewSettings() {
+    const me = state.me;
+    const st = me.settings;
+    const name = state.nameDraft === null ? st.name : state.nameDraft;
+    const nameChanged = state.nameDraft !== null && state.nameDraft.trim() !== st.name;
+    const leadTitle = (m) => m === 0 ? "сразу" : (me.lead_options.find((o) => o.minutes === m) || {}).title;
+    if (state.notice) { // всплывающее подтверждение внизу экрана, само исчезает
+      clearTimeout(toastTimer);
+      const shown = state.notice;
+      toastTimer = setTimeout(() => {
+        if (state.notice === shown) { state.notice = ""; if (state.tab === "settings") renderKeepFocus(); }
+      }, 2500);
+    }
+    return [
+      state.notice ? h("div", { class: "toast" }, state.notice) : null,
+      state.error ? h("div", { class: "error" }, state.error) : null,
+
+      h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Имя для клиентов"),
+        h("div", { class: "row" },
+          h("input", { id: "mname", value: name, maxlength: "60",
+            oninput: (e) => { state.nameDraft = e.target.value; renderKeepFocusName(); } }),
+          nameChanged ? h("button", { class: "btn small-btn", onclick: async () => {
+            await patchSettings({ name: state.nameDraft.trim() }, "Имя сохранено");
+            state.nameDraft = null; render();
+          } }, "Сохранить") : null),
+        h("div", { class: "set-hint" }, "Так вас увидят клиенты в приложении и в напоминаниях.")),
+
+      me.client_link ? h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Ссылка для записи"),
+        h("div", { class: "link-box", id: "client-link" }, me.client_link),
+        h("button", { class: "btn secondary", onclick: () => copyLink(me.client_link) }, "Скопировать ссылку"),
+        h("div", { class: "set-hint" },
+          "Отправляйте клиентам вместо переписки «есть окошко?», добавьте в профиль соцсетей.")) : null,
+
+      h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Записаться можно не позже чем за"),
+        choice(me.lead_options.map((o) => [o.minutes, o.title]), st.min_lead_min,
+          (v) => patchSettings({ min_lead_min: v }, `Теперь: не позже чем за ${leadTitle(v)}`)),
+        h("div", { class: "set-hint" }, "Защищает от записей «через 10 минут», когда вы уже не успеете подготовиться."),
+
+        h("div", { class: "set-title" }, "Запись открыта вперёд на"),
+        choice(me.horizon_options.map((d) => [d, d + " дн"]), st.horizon_days,
+          (v) => patchSettings({ horizon_days: v }, `Клиенты видят ${v} дней вперёд`)),
+
+        h("div", { class: "set-title" }, "Шаг времени записи"),
+        choice(me.step_options.map((m) => [m, m + " мин"]), st.slot_step_min,
+          (v) => patchSettings({ slot_step_min: v }, `Время предлагается каждые ${v} мин`)),
+        h("div", { class: "set-hint" }, "Как часто предлагать время: 15 мин — 10:00, 10:15, 10:30…"),
+
+        h("div", { class: "set-title" }, "Пауза между клиентами"),
+        choice(me.buffer_options.map((m) => [m, m ? m + " мин" : "нет"]), st.buffer_min,
+          (v) => patchSettings({ buffer_min: v }, v ? `Пауза ${v} мин после каждого клиента` : "Без паузы")),
+        h("div", { class: "set-hint" }, "Время на уборку и подготовку — в него никто не запишется.")),
+
+      h("div", { class: "card" },
+        h("div", { class: "row-between" },
+          h("div", null,
+            h("div", { class: "set-title", style: "margin-top:0" }, "Одна запись в день на клиента"),
+            h("div", { class: "set-hint" }, "Клиент не сможет занять два окна в один день.")),
+          h("label", { class: "switch" },
+            h("input", { type: "checkbox", checked: st.one_booking_per_day,
+              onchange: () => patchSettings({ one_booking_per_day: !st.one_booking_per_day },
+                st.one_booking_per_day ? "Ограничение выключено" : "Ограничение включено") }),
+            h("span", { class: "slider" })))),
+
+      h("div", { class: "card" },
+        h("div", { class: "set-title", style: "margin-top:0" }, "Часовой пояс"),
+        h("select", { class: "select", onchange: (e) => patchSettings({ timezone: e.target.value }, "Часовой пояс сохранён") },
+          me.timezones.map((tz) => h("option", { value: tz.id, selected: tz.id === st.timezone }, tz.title))),
+        h("div", { class: "set-hint" }, "Время записей и напоминаний считается по этому поясу.")),
+    ];
+  }
+
+  function renderKeepFocusName() {
+    // перерисовка только кнопки «Сохранить» без потери фокуса в поле имени
+    renderKeepFocus();
+  }
+
   // ---------- каркас ----------
   function header() {
     const me = state.me;
@@ -687,7 +803,8 @@
           h("h1", null, "Кабинет"),
           h("div", { class: "sub" }, me.name))),
       h("div", { class: "tabs" },
-        tab("appointments", "Записи"), tab("schedule", "График"), tab("days", "Выходные")),
+        tab("appointments", "Записи"), tab("schedule", "График"), tab("days", "Выходные"),
+        tab("settings", "Настройки")),
     ];
   }
 
@@ -701,6 +818,7 @@
     }
     haptic("select");
     state.tab = id;
+    state.nameDraft = null;
     state.view = "list";
     state.error = "";
     state.notice = "";
@@ -714,6 +832,7 @@
   function render() {
     const body = state.tab === "schedule" ? viewSchedule()
       : state.tab === "days" ? viewCalendar()
+      : state.tab === "settings" ? viewSettings()
       : state.view === "new" ? viewNew() : viewAppointments();
     app.replaceChildren(...[header(), body].flat(Infinity).filter(Boolean));
     if (state.tab === "schedule") state.notice = state.notice && !dirty() ? state.notice : "";

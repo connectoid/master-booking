@@ -110,10 +110,37 @@ async def test_settings_patch(cab):
     r = await cab.patch("/api/cabinet/settings", headers=M,
                         json={"min_lead_min": 120, "one_booking_per_day": True, "horizon_days": 60})
     assert r.status_code == 200
-    assert r.json() == {"min_lead_min": 120, "horizon_days": 60, "one_booking_per_day": True,
-                        "timezone": "Asia/Anadyr"}
-    for bad in ({"min_lead_min": 7}, {"horizon_days": 365}, {"timezone": "Mars/Base"}):
+    assert r.json() == {"name": "Анна", "min_lead_min": 120, "horizon_days": 60,
+                        "one_booking_per_day": True, "timezone": "Asia/Anadyr",
+                        "slot_step_min": 15, "buffer_min": 0}
+    for bad in ({"min_lead_min": 7}, {"horizon_days": 365}, {"timezone": "Mars/Base"},
+                {"slot_step_min": 7}, {"buffer_min": 3}, {"name": "а"}, {"name": "   "}):
         assert (await cab.patch("/api/cabinet/settings", headers=M, json=bad)).status_code == 422
+
+
+async def test_settings_name_step_buffer(cab):
+    r = await cab.patch("/api/cabinet/settings", headers=M,
+                        json={"name": "  Анна   Петрова ", "slot_step_min": 30, "buffer_min": 30})
+    assert r.status_code == 200, r.text
+    got = r.json()
+    assert got["name"] == "Анна Петрова" and got["slot_step_min"] == 30 and got["buffer_min"] == 30
+    me = (await cab.get("/api/cabinet/me", headers=M)).json()
+    assert me["name"] == "Анна Петрова"
+    assert me["step_options"] and me["buffer_options"]
+
+    day = dt.date.fromisoformat(me["today"]) + dt.timedelta(days=1)
+    while day.weekday() > 4:
+        day += dt.timedelta(days=1)
+    params = {"service_id": 1, "date": day.isoformat()}
+    slots = (await cab.get("/api/cabinet/free-slots", headers=M, params=params)).json()
+    assert [s[11:16] for s in slots[:3]] == ["10:00", "10:30", "11:00"]  # шаг 30 мин
+
+    at = f"{day.isoformat()}T10:00:00{me['utc_offset']}"
+    r = await cab.post("/api/cabinet/appointments", headers=M,
+                       json={"service_id": 1, "starts_at": at, "client_name": "Ирина"})
+    assert r.status_code == 201, r.text
+    slots = (await cab.get("/api/cabinet/free-slots", headers=M, params=params)).json()
+    assert slots[0][11:16] == "11:30"  # 10:00–11:00 + пауза 30 мин
 
 
 async def test_overrides_crud_and_conflicts(cab):
