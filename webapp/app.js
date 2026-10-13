@@ -1,11 +1,12 @@
 // Окошко — Mini App записи к мастеру. Работает в MAX (window.WebApp), в Telegram
-// (window.Telegram.WebApp, позже) и в обычном браузере (только просмотр).
+// (window.Telegram.WebApp) и в обычном браузере (только просмотр).
 (function () {
   "use strict";
 
   const {
     MAX, bridge, channel, unsafe, query, h, haptic, api, setBack,
     price, duration, timeOf, dateParts, dayLabel, ready,
+    requestPhone, canRequestPhone, ensureCanMessage,
   } = window.OK;
   if (window.OK.mode !== "client") return; // кабинет мастера — в cabinet.js
   const slug = String(unsafe.start_param || query.get("m") || "").toLowerCase();
@@ -138,7 +139,7 @@
     ];
     if (channel === "web") {
       out.push(h("div", { class: "error" },
-        "Записаться можно из мессенджера: откройте ссылку мастера в MAX."));
+        "Записаться можно из мессенджера: откройте ссылку мастера в MAX или Telegram."));
       return out;
     }
     out.push(
@@ -147,8 +148,9 @@
       h("label", { for: "phone" }, "Телефон (необязательно)"),
       h("div", { class: "row" },
         input("phone", { id: "phone", type: "tel", autocomplete: "tel", placeholder: "+7…" }),
-        MAX && MAX.requestContact
-          ? h("button", { class: "btn secondary small-btn", onclick: fillPhone }, "Из MAX") : null),
+        canRequestPhone
+          ? h("button", { class: "btn secondary small-btn", onclick: fillPhone },
+            channel === "telegram" ? "Из Telegram" : "Из MAX") : null),
       h("label", { for: "comment" }, "Комментарий мастеру (необязательно)"),
       h("textarea", { id: "comment", maxlength: "500", oninput: (e) => { f.comment = e.target.value; } },
         f.comment),
@@ -167,8 +169,9 @@
         h("h2", null, "Вы записаны"),
         h("p", null, `${a.service_name}`),
         h("p", null, h("b", null, `${dayLabel(a.starts_at)}, ${timeOf(a.starts_at)}`)),
-        h("p", { class: "muted small" },
-          `Мастер: ${state.master.name}. Подтверждение и напоминания придут в чат с ботом.`)),
+        h("p", { class: "muted small" }, `Мастер: ${state.master.name}. ` + (state.canMessage === false
+          ? "Вы не разрешили боту писать вам — напоминания не придут. Запись видна в «Мои записи»."
+          : "Подтверждение и напоминания придут в чат с ботом."))),
       h("button", { class: "btn secondary", onclick: openMy }, "Мои записи"),
       bridge && bridge.close ? h("button", { class: "btn", onclick: () => bridge.close() }, "Готово") : null,
     ];
@@ -240,13 +243,11 @@
   }
 
   async function fillPhone() {
-    try {
-      const res = await MAX.requestContact();
-      if (res && res.phone) {
-        state.form.phone = String(res.phone);
-        render();
-      }
-    } catch (_) { /* пользователь отказался */ }
+    const phone = await requestPhone();
+    if (phone) {
+      state.form.phone = phone;
+      render();
+    }
   }
 
   async function submit() {
@@ -254,6 +255,7 @@
     state.sending = true;
     state.error = "";
     render();
+    state.canMessage = await ensureCanMessage();
     try {
       state.appointment = await api(`/masters/${encodeURIComponent(slug)}/appointments`, {
         method: "POST",

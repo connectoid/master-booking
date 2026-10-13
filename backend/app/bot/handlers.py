@@ -27,7 +27,7 @@ from app.bot.parsing import (
 from app.bot.state import clear_state, get_state, set_state
 from app.bot.ui import Button, Event, Keyboard, Messenger
 from app.channels.identity import ChannelUser
-from app.channels.max.adapter import cabinet_link, mini_app_link
+from app.channels import links
 from app.models import Channel, Master
 from app.notify import appointment_cancelled_by_client
 from app.services import booking
@@ -65,14 +65,13 @@ class Ctx:
         channel: Channel,
         session: AsyncSession,
         messenger: Messenger,
-        bot_username: str = "",
     ):
         self.event = event
         self.channel = channel
         self.session = session
         self.messenger = messenger
-        self.bot_username = bot_username
         self.user = ChannelUser(channel, event.user_id, event.name)
+        self.callback_answered = False
 
     async def reply(self, text: str, keyboard: Keyboard | None = None) -> None:
         await self.messenger.send(self.event.user_id, text, keyboard)
@@ -80,13 +79,14 @@ class Ctx:
     async def toast(self, text: str) -> None:
         """Короткое всплывающее уведомление в ответ на нажатие кнопки."""
         if self.event.callback_id:
+            self.callback_answered = True
             try:
                 await self.messenger.answer_callback(self.event.callback_id, text)
             except Exception as e:
                 log.debug("answer_callback не удался: %s", e)
 
-    def client_link(self, master: Master) -> str | None:
-        return mini_app_link(self.bot_username, master.slug) if self.bot_username else None
+    def cabinet_button(self, text: str) -> Button | None:
+        return links.cabinet_button(self.channel, text)
 
 
 async def handle_event(ctx: Ctx) -> None:
@@ -111,8 +111,8 @@ async def client_start(ctx: Ctx, slug: str) -> None:
     if master is None:
         await ctx.reply("Мастер по этой ссылке не найден. Проверьте ссылку или спросите мастера.")
         return
-    link = ctx.client_link(master)
-    kb = [[Button("Выбрать время", url=link)]] if link else None
+    button = links.client_app_button(ctx.channel, "Выбрать время", master.slug)
+    kb = [[button]] if button else None
     await ctx.reply(
         f"Онлайн-запись: {master.name}\n\n"
         "Выберите услугу и свободное время — подтверждение и напоминания придут сюда.",
@@ -215,8 +215,8 @@ async def master_flow(ctx: Ctx, master: Master) -> None:
 
 def menu_keyboard(ctx: Ctx) -> Keyboard:
     kb = list(MENU)
-    if ctx.bot_username:
-        kb.insert(0, [Button("Открыть кабинет", url=cabinet_link(ctx.bot_username))])
+    if button := ctx.cabinet_button("Открыть кабинет"):
+        kb.insert(0, [button])
     return kb
 
 
@@ -331,8 +331,8 @@ async def show_schedule(ctx: Ctx, master: Master) -> None:
     weekly = await ms.get_weekly_schedule(ctx.session, master.id)
     text = ("Ваш график:\n" + format_schedule(weekly)) if weekly else "График ещё не задан."
     kb: Keyboard = [[Button("Изменить текстом", payload="m:sch_edit")]]
-    if ctx.bot_username:
-        kb.insert(0, [Button("Настроить в кабинете", url=cabinet_link(ctx.bot_username))])
+    if button := ctx.cabinet_button("Настроить в кабинете"):
+        kb.insert(0, [button])
     kb.append([Button("Меню", payload="m:menu")])
     await ctx.reply(text, kb)
 
@@ -486,14 +486,18 @@ async def show_settings(ctx: Ctx, master: Master) -> None:
 
 
 async def show_link(ctx: Ctx, master: Master) -> None:
-    link = ctx.client_link(master)
-    if not link:
+    found = links.share_links(master.slug)
+    if not found:
         await ctx.reply("Ссылка будет доступна, когда бот получит своё имя. Попробуйте позже.")
         return
+    if len(found) == 1:
+        head = f"Ваша ссылка для записи:\n{found[0].url}"
+    else:
+        head = "Ваши ссылки для записи — клиент выберет удобный мессенджер:\n" + "\n".join(
+            f"{x.title}: {x.url}" for x in found)
     await ctx.reply(
-        "Ваша ссылка для записи:\n"
-        f"{link}\n\n"
-        "Отправляйте её клиентам вместо переписки «есть окошко?», добавьте в профиль соцсетей "
+        f"{head}\n\n"
+        "Отправляйте ссылку клиентам вместо переписки «есть окошко?», добавьте в профиль соцсетей "
         "и закрепите в чатах. Новые записи будут приходить сюда.",
         [[Button("Меню", payload="m:menu")]],
     )
@@ -531,9 +535,14 @@ async def process_event(channel: Channel, event: Event) -> None:
         log.warning("Нет отправителя для канала %s — событие пропущено", channel)
         return
     async with runtime.session_factory() as session:
-        ctx = Ctx(event, channel, session, messenger, runtime.bot_usernames.get(channel, ""))
+        ctx = Ctx(event, channel, session, messenger)
         try:
             await handle_event(ctx)
         except Exception:
             await session.rollback()
             log.exception("Ошибка обработки события %s", event)
+        if event.callback_id and not ctx.callback_answered and getattr(messenger, "needs_callback_ack", False):
+            try:  # убрать «часики» с нажатой кнопки
+                await messenger.answer_callback(event.callback_id, "")
+            except Exception as e:
+                log.debug("answer_callback не удался: %s", e)

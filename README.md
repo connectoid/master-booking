@@ -1,12 +1,7 @@
 # master-booking
 
-Онлайн-запись для частных мастеров с напоминаниями клиентам в MAX, Telegram и браузере.
-
-## Стек
-- Python 3.12, FastAPI, SQLAlchemy 2.0 (async, asyncpg), Alembic, PostgreSQL 16.
-- MAX: неофициальная `maxapi` или прямые HTTP-вызовы — держать адаптер тонким.
-- Telegram: aiogram 3.
-- Фронтенд: React + MAX UI (решим на этапе Mini App).
+Онлайн-запись для частных мастеров с напоминаниями клиентам в MAX и Telegram (затем браузер).
+Архитектура и решения — в [CLAUDE.md](CLAUDE.md).
 
 ## Быстрый старт (на VPS)
 
@@ -27,54 +22,15 @@ uvicorn app.main:app --reload
 TEST_DATABASE_URL=postgresql+psycopg://booking:booking@localhost:5432/booking_test pytest
 ```
 
-## API клиента (Mini App)
+## Подключение мессенджеров
 
-| Метод | Путь | Вход |
-|---|---|---|
-| GET | `/api/masters/{slug}` — мастер и активные услуги | нет |
-| GET | `/api/masters/{slug}/slots?service_id=&date_from=&days=` — свободные слоты | нет |
-| POST | `/api/masters/{slug}/appointments` — записаться | да |
-| GET | `/api/masters/{slug}/appointments/my` — мои предстоящие записи | да |
-| POST | `/api/appointments/{id}/cancel` — отменить свою запись | да |
+MAX: `MAX_BOT_TOKEN`, `MAX_WEBHOOK_SECRET` в `.env`, затем `python -m app.channels.max.setup`.
 
-Вход: заголовки `X-Channel: max|telegram` и `Authorization: tma <initData>`.
-Документация с примерами — `/docs` после запуска `uvicorn app.main:app`.
+Telegram:
 
-## Бот MAX
-
-Мастер пишет боту: регистрация (имя, часовой пояс) → услуги → график → ссылка для клиентов.
-Дальше в боте: записи на сегодня/неделю, услуги, график, уведомления о новых записях и отменах.
-Клиент получает подтверждение записи и напоминания (за сутки и за 2 часа) с кнопками
-«Приду» / «Отменить запись».
-
-### Настройка на сервере
-
-1. Сертификат Минцифры для `platform-api2.max.ru` — только для нашего процесса, без установки в систему:
-   ```bash
-   mkdir -p /etc/okoshko && cd /etc/okoshko
-   wget https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer
-   wget https://gu-st.ru/content/Other/doc/russian_trusted_sub_ca.cer
-   openssl x509 -inform DER -in russian_trusted_root_ca.cer -out root.pem
-   openssl x509 -inform DER -in russian_trusted_sub_ca.cer -out sub.pem
-   cat root.pem sub.pem > russian_trusted_ca.pem
-   ```
-2. В `.env`: `MAX_BOT_TOKEN`, `MAX_WEBHOOK_SECRET` (придумать), `MAX_CA_FILE=/etc/okoshko/russian_trusted_ca.pem`,
-   `PUBLIC_BASE_URL=https://<домен>`.
-3. `alembic upgrade head`, перезапуск сервиса.
-4. Подписка на вебхук: `python -m app.channels.max.setup` (статус: `--status`, отписка: `--remove`).
-
-## Mini App
-
-Страница записи для клиента — `webapp/` (без сборки), раздаётся бэкендом по `https://<домен>/app/`.
-В платформе MAX: **Чат-боты → ⋮ → Настройки** → ссылка на мини-приложение `https://<домен>/app/`.
-Ссылка для клиентов: `https://max.ru/<бот>?startapp=<slug>` (бот выдаёт её мастеру сам).
-Просмотр в браузере без записи: `https://<домен>/app/?m=<slug>`.
-
-## Кабинет мастера (Mini App)
-
-Открывается из бота кнопкой «Открыть кабинет» — ссылка `https://max.ru/<бот>?startapp=cabinet`.
-Доступ только мастеру: сервер сверяет пользователя из подписанного initData с `master_accounts`.
-API: `/api/cabinet/me`, `PUT /api/cabinet/schedule`, `PATCH /api/cabinet/settings`,
-`GET|PUT|DELETE /api/cabinet/overrides`, записи: `GET|POST /api/cabinet/appointments`,
-`POST /api/cabinet/appointments/{id}/cancel`, `GET /api/cabinet/free-slots`, `/services`, `/clients`.
-В интерфейсе: «Записи» (14 дней, ручная запись, отмена), «График» (недельный) и «Выходные» (календарь особых дней).
+1. Создать бота в @BotFather (`/newbot`), токен — в `TELEGRAM_BOT_TOKEN`.
+2. Придумать `TELEGRAM_WEBHOOK_SECRET` (латиница, цифры, `_` и `-`).
+3. `systemctl restart okoshko-api`, затем `python -m app.channels.telegram.setup`.
+4. В @BotFather: Bot Settings → Configure Mini App → Enable, адрес `https://<домен>/app/`.
+   Без этого не откроются ссылки для соцсетей вида `t.me/<бот>?startapp=<мастер>`
+   (кнопки внутри бота работают и так).

@@ -5,15 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <title>Окошко — запись к мастеру</title>
-  <link rel="stylesheet" href="style.css?v=7">
-  <script src="https://st.max.ru/js/max-web-app.js"></script>
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <main id="app" aria-live="polite">
     <div class="center muted">Загрузка…</div>
   </main>
-  <script src="core.js?v=2"></script>
-  <script src="app.js?v=4"></script>
-  <script src="cabinet.js?v=5"></script>
+  <script>
+    // Скрипт платформы, затем наши — по порядку (async = false), без document.write.
+    // Telegram передаёт данные запуска в адресе (#tgWebAppData=…): только тогда грузим его скрипт,
+    // чтобы в MAX и браузере не ждать telegram.org.
+    (function () {
+      var isTg = /tgWebApp/.test(location.hash + location.search);
+      try { if (isTg) sessionStorage.setItem("okTg", "1"); else isTg = sessionStorage.getItem("okTg") === "1"; } catch (e) {}
+      [
+        isTg ? "https://telegram.org/js/telegram-web-app.js?59" : "https://st.max.ru/js/max-web-app.js",
+        "core.js?v=3", "app.js?v=5", "cabinet.js?v=6",
+      ].forEach(function (src) {
+        var s = document.createElement("script");
+        s.src = src;
+        s.async = false;
+        document.body.appendChild(s);
+      });
+    })();
+  </script>
 </body>
 </html>

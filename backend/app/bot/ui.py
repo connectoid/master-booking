@@ -10,6 +10,7 @@ class Button:
     text: str
     payload: str | None = None  # кнопка-действие (callback)
     url: str | None = None      # кнопка-ссылка
+    web_app: str | None = None  # открыть Mini App внутри мессенджера (Telegram); иначе — как url
 
 
 Keyboard = list[list[Button]]

@@ -745,12 +745,17 @@
           } }, "Сохранить") : null),
         h("div", { class: "set-hint" }, "Так вас увидят клиенты в приложении и в напоминаниях.")),
 
-      me.client_link ? h("div", { class: "card" },
-        h("div", { class: "set-title" }, "Ссылка для записи"),
-        h("div", { class: "link-box", id: "client-link" }, me.client_link),
-        h("button", { class: "btn secondary", onclick: () => copyLink(me.client_link) }, "Скопировать ссылку"),
-        h("div", { class: "set-hint" },
-          "Отправляйте клиентам вместо переписки «есть окошко?», добавьте в профиль соцсетей.")) : null,
+      (me.client_links || []).length ? h("div", { class: "card" },
+        h("div", { class: "set-title" }, me.client_links.length > 1 ? "Ссылки для записи" : "Ссылка для записи"),
+        me.client_links.flatMap((l) => [
+          me.client_links.length > 1 ? h("div", { class: "link-label" }, l.title) : null,
+          h("div", { class: "link-box" }, l.url),
+          h("button", { class: "btn secondary", onclick: () => copyLink(l.url) },
+            me.client_links.length > 1 ? `Скопировать ссылку ${l.title}` : "Скопировать ссылку"),
+        ]),
+        h("div", { class: "set-hint" }, me.client_links.length > 1
+          ? "Клиент записывается в том мессенджере, которым пользуется. Отправляйте вместо переписки «есть окошко?», добавьте в профиль соцсетей."
+          : "Отправляйте клиентам вместо переписки «есть окошко?», добавьте в профиль соцсетей.")) : null,
 
       h("div", { class: "card" },
         h("div", { class: "set-title" }, "Записаться можно не позже чем за"),
@@ -1034,7 +1039,7 @@
     ready();
     setBack(null);
     if (channel === "web") {
-      fatal("Кабинет открывается из бота в MAX: кнопка «Кабинет» в меню.");
+      fatal("Кабинет открывается из бота в MAX или Telegram: кнопка «Открыть кабинет» в меню.");
       return;
     }
     try {

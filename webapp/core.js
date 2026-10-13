@@ -91,12 +91,58 @@
     return `${p.wd}, ${p.day} ${p.month}`;
   };
 
+  // Тема: Telegram сообщает свою (может не совпадать с темой телефона)
+  function applyTheme() {
+    if (!TG || !TG.colorScheme) return;
+    document.documentElement.dataset.theme = TG.colorScheme;
+    try {
+      const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+      if (bg && TG.setHeaderColor) TG.setHeaderColor(bg);
+      if (bg && TG.setBackgroundColor) TG.setBackgroundColor(bg);
+    } catch (_) { /* старый клиент */ }
+  }
+  if (TG) {
+    applyTheme();
+    try { TG.onEvent("themeChanged", applyTheme); } catch (_) { /* нет событий */ }
+  }
+
   function ready() {
     try { if (bridge && bridge.ready) bridge.ready(); } catch (_) { /* нет метода */ }
+    try { if (TG && TG.expand) TG.expand(); } catch (_) { /* нет метода */ }
+  }
+
+  // Телефон из профиля мессенджера. MAX отдаёт номер приложению; Telegram — боту,
+  // но новые клиенты Telegram возвращают его и в ответе. null — не получилось.
+  function requestPhone() {
+    return new Promise((resolve) => {
+      try {
+        if (MAX && MAX.requestContact) {
+          Promise.resolve(MAX.requestContact())
+            .then((res) => resolve(res && res.phone ? String(res.phone) : null), () => resolve(null));
+        } else if (TG && TG.requestContact) {
+          TG.requestContact((ok, res) => {
+            const c = ok && res && res.responseUnsafe && res.responseUnsafe.contact;
+            resolve(c && c.phone_number ? String(c.phone_number) : null);
+          });
+        } else resolve(null);
+      } catch (_) { resolve(null); }
+    });
+  }
+  const canRequestPhone = !!((MAX && MAX.requestContact) || (TG && TG.requestContact && TG.isVersionAtLeast && TG.isVersionAtLeast("6.9")));
+
+  // Telegram: бот может писать человеку, только если тот разрешил. Спрашиваем перед записью,
+  // иначе подтверждение и напоминания не дойдут. true — писать можно (или это не Telegram).
+  function ensureCanMessage() {
+    return new Promise((resolve) => {
+      if (!TG || (unsafe.user && unsafe.user.allows_write_to_pm)) return resolve(true);
+      if (!TG.requestWriteAccess || !(TG.isVersionAtLeast && TG.isVersionAtLeast("6.9"))) return resolve(true);
+      try { TG.requestWriteAccess((allowed) => resolve(!!allowed)); } catch (_) { resolve(true); }
+    });
   }
 
   window.OK = {
     MAX, TG, bridge, channel, initData, unsafe, query, startParam, mode, WD, MONTHS,
     h, haptic, api, setBack, price, duration, timeOf, dateParts, dayLabel, ready,
+    requestPhone, canRequestPhone, ensureCanMessage,
   };
 })();

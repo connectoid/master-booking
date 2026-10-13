@@ -303,3 +303,53 @@ async def test_one_booking_per_day_limit(bot):
         await book(0)
     await book(1)  # другой день — можно
     assert await scalar(engine, "SELECT count(*) FROM appointments") == 3
+
+
+async def test_telegram_client_and_cross_channel_notifications(bot, monkeypatch):
+    """Мастер в MAX, клиент в Telegram: кнопка web_app, ссылки на оба мессенджера, уведомления в оба."""
+    from app import notify
+    from app.channels.identity import ChannelUser
+    from app.config import get_settings
+    from app.runtime import runtime
+    from app.services import booking
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://okoshko.website")
+    fake, engine = bot
+    tg = FakeMessenger()
+    runtime.messengers[Channel.TELEGRAM] = tg
+    runtime.bot_usernames[Channel.TELEGRAM] = "okoshko_bot"
+    try:
+        await register_master(fake)
+        await send("text", text="Маникюр, 90, 1500")
+        await send("text", text="пн-вс 10-18")
+        slug = await scalar(engine, "SELECT slug FROM masters")
+        text, _ = fake.last()
+        assert f"https://t.me/okoshko_bot?startapp={slug}" in text
+        assert f"https://max.ru/{BOT}?startapp={slug}" in text
+
+        from app.bot.handlers import process_event
+        await process_event(Channel.TELEGRAM, Event(kind="start", user_id="555", name="Ира", payload=slug))
+        text, kb = tg.last("555")
+        assert kb[0][0].web_app == f"https://okoshko.website/app/?m={slug}"
+
+        tz = ZoneInfo("Asia/Kamchatka")
+        day = dt.datetime.now(tz).date() + dt.timedelta(days=3)
+        async with runtime.session_factory() as s:
+            master = await booking.get_master(s, slug)
+            service = (await booking.list_services(s, master.id))[0]
+            slots = await booking.compute_slots(s, master, service, day, day, booking.utcnow())
+            appt = await booking.create_appointment(
+                s, master, service, slots[day][0], ChannelUser(Channel.TELEGRAM, "555", "Ира"))
+            await s.commit()
+        await notify.appointment_created(appt.id)
+        assert "Новая запись" in fake.last()[0]
+        assert "Вы записаны" in tg.last("555")[0]
+
+        # нажатие кнопки без ответа-тоста — Telegram всё равно получает answerCallbackQuery
+        tg.needs_callback_ack = True
+        await process_event(Channel.TELEGRAM, Event(kind="callback", user_id="555", payload="c:ok:x",
+                                                    callback_id="cb9"))
+        assert tg.toasts == [""]
+    finally:
+        get_settings.cache_clear()

@@ -68,8 +68,8 @@ def keyboard_to_attachments(keyboard: Keyboard | None) -> list[dict] | None:
     for row in keyboard:
         buttons = []
         for b in row:
-            if b.url:
-                buttons.append({"type": "link", "text": b.text, "url": b.url})
+            if b.url or b.web_app:
+                buttons.append({"type": "link", "text": b.text, "url": b.url or b.web_app})
             else:
                 buttons.append({"type": "callback", "text": b.text, "payload": b.payload or ""})
         rows.append(buttons)

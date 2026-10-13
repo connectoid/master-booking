@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.bot import texts
 from app.bot.parsing import MAX_RANGE_DAYS, ParseError, check_ranges, days_between
-from app.channels.max.adapter import mini_app_link
+from app.channels import links
 from app import notify
 from app.db import get_session
 from app.domain.phone import normalize_phone
@@ -100,12 +100,19 @@ class ConflictOut(BaseModel):
     phone: str | None
 
 
+class ClientLink(BaseModel):
+    channel: str
+    title: str
+    url: str
+
+
 class CabinetOut(BaseModel):
     slug: str
     name: str
     today: dt.date      # сегодня по часовому поясу мастера
     utc_offset: str     # «+12:00» — для времени, которое мастер вводит вручную
-    client_link: str | None
+    client_link: str | None          # ссылка в мессенджере, из которого открыт кабинет
+    client_links: list[ClientLink]   # ссылки во всех подключённых мессенджерах
     settings: Settings
     schedule: WeeklySchedule
     timezones: list[dict[str, str]]
@@ -137,9 +144,11 @@ def _settings_out(m: Master) -> Settings:
                     slot_step_min=m.slot_step_min, buffer_min=m.buffer_min)
 
 
-def _client_link(master: Master, channel: Channel) -> str | None:
-    username = runtime.bot_usernames.get(Channel.MAX)
-    return mini_app_link(username, master.slug) if username else None
+def _client_links(master: Master, channel: Channel) -> list[ClientLink]:
+    """Сначала — мессенджер, из которого мастер открыл кабинет."""
+    found = links.share_links(master.slug)
+    found.sort(key=lambda x: x.channel != channel)
+    return [ClientLink(channel=x.channel.value, title=x.title, url=x.url) for x in found]
 
 
 # ---------- эндпоинты ----------
@@ -149,12 +158,14 @@ async def me(master: CurrentMaster, user: CurrentUser, session: Session) -> Cabi
     weekly = await ms.get_weekly_schedule(session, master.id)
     now_local = dt.datetime.now(ZoneInfo(master.timezone))
     offset = now_local.strftime("%z")
+    client_links = _client_links(master, user.channel)
     return CabinetOut(
         slug=master.slug,
         name=master.name,
         today=now_local.date(),
         utc_offset=f"{offset[:3]}:{offset[3:]}",
-        client_link=_client_link(master, user.channel),
+        client_link=client_links[0].url if client_links else None,
+        client_links=client_links,
         settings=_settings_out(master),
         schedule=_weekly_out(weekly),
         timezones=[{"id": tz, "title": title} for title, tz in texts.TIMEZONES],

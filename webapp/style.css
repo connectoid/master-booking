@@ -11,7 +11,7 @@
   --radius: 14px;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1c1715;
     --card: #27201d;
     --text: #f3ebe6;
@@ -23,6 +23,20 @@
     --danger: #ff7b6b;
   }
 }
+
+:root[data-theme="dark"] {
+  --bg: #1c1715;
+  --card: #27201d;
+  --text: #f3ebe6;
+  --muted: #a8988f;
+  --line: #3a2f2a;
+  --accent: #f08a6c;
+  --accent-text: #1c1715;
+  --accent-soft: #4a2c23;
+  --danger: #ff7b6b;
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
@@ -291,3 +305,5 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
 .list + .btn { margin-top: 12px; }
 .btn.secondary.danger { margin-top: 10px; }
 .tabs .tab { font-size: 13px; padding: 9px 2px; letter-spacing: -0.1px; }
+.link-label { font-size: 13px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+.card .set-title + .link-label { margin-top: 0; }

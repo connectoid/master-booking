@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     max_bot_username: str = ""     # ник бота (idИНН_bot); пусто — спросим у API при старте
     max_ca_file: str = ""          # доп. корневой сертификат (Минцифры), если не установлен в систему
 
+    # Telegram
+    telegram_api_base: str = "https://api.telegram.org"  # можно указать свой прокси-адрес Bot API
+    telegram_webhook_secret: str = ""  # 1–256 символов: латиница, цифры, _ и -
+    telegram_bot_username: str = ""    # ник бота без @; пусто — спросим у API при старте
+
     # Фоновая отправка напоминаний
     reminders_enabled: bool = True
     reminders_interval_sec: int = 30
