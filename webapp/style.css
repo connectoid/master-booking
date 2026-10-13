@@ -177,3 +177,29 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
   background: linear-gradient(to top, var(--bg) 75%, transparent);
 }
 .save-bar .btn { margin-top: 8px; }
+
+/* вкладки и записи */
+.tabs { display: flex; gap: 4px; background: var(--line); border-radius: 12px; padding: 3px; margin-bottom: 14px; }
+.tab { flex: 1; border: 0; background: none; padding: 9px; border-radius: 10px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; }
+.tab.active { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.day .cnt { font-size: 12px; font-weight: 600; color: var(--accent); margin-top: 2px; }
+.day .cnt.zero { color: var(--muted); font-weight: 400; }
+.day.active .cnt { color: inherit; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row-between h2 { margin: 16px 0 10px; }
+.appt { display: flex; gap: 12px; align-items: flex-start; }
+.appt .appt-time { font-weight: 700; white-space: nowrap; min-width: 92px; }
+.appt .title { font-weight: 600; }
+.appt .meta { font-size: 14px; color: var(--muted); }
+.appt .meta a { color: var(--accent); text-decoration: none; }
+.badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: middle; }
+.danger-link { color: var(--danger); padding: 4px 0 0; }
+.chips { display: flex; flex-direction: column; gap: 6px; }
+.chip { display: flex; justify-content: space-between; gap: 8px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; cursor: pointer; }
+.chip.active { border-color: var(--accent); background: var(--accent-soft); }
+.chip-sub { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.inline-label { align-items: center; margin-top: 10px; }
+.inline-label .time { max-width: 140px; }
+.hints { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; margin-top: 4px; overflow: hidden; }
+.hint { display: flex; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.hint:last-child { border-bottom: 0; }

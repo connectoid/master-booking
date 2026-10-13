@@ -150,3 +150,108 @@ async def test_overrides_crud_and_conflicts(cab):
     past = (dt.datetime.now(TZ).date() - dt.timedelta(days=1)).isoformat()
     r = await cab.put("/api/cabinet/overrides", headers=M, json={"dates": [past], "intervals": []})
     assert r.status_code == 422
+
+
+# ---------- записи и ручная запись ----------
+
+async def _book_as_client(cab, day_offset=3, user_id=111):
+    from tests.test_api import in_days
+
+    day = in_days(day_offset)
+    d = (await cab.get("/api/masters/anna_nails/slots", params={
+        "service_id": 1, "date_from": day.isoformat(), "days": 7})).json()["days"][0]
+    r = await cab.post("/api/masters/anna_nails/appointments",
+                       json={"service_id": 1, "starts_at": d["slots"][0], "phone": "89140000000"},
+                       headers=auth(user_id=user_id))
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+async def test_list_services_and_appointments(cab):
+    services = (await cab.get("/api/cabinet/services", headers=M)).json()
+    assert [s["name"] for s in services] == ["Маникюр"]
+    booked = await _book_as_client(cab)
+    me = (await cab.get("/api/cabinet/me", headers=M)).json()
+    r = await cab.get("/api/cabinet/appointments", headers=M,
+                      params={"date_from": me["today"], "days": 14})
+    items = r.json()
+    assert [a["id"] for a in items] == [booked["id"]]
+    assert items[0]["client"] == {"id": 1, "name": "Ольга", "phone": "+79140000000"}
+    assert items[0]["source"] == "max"
+    assert me["utc_offset"] == "+12:00"
+    # чужой мастер записи не видит
+    assert (await cab.get("/api/cabinet/appointments", headers=auth(user_id=111))).status_code == 403
+
+
+async def test_free_slots_ignore_min_lead(cab):
+    await cab.patch("/api/cabinet/settings", headers=M, json={"min_lead_min": 1440})
+    me = (await cab.get("/api/cabinet/me", headers=M)).json()
+    day = dt.date.fromisoformat(me["today"]) + dt.timedelta(days=1)
+    while day.weekday() > 4:  # ближайший рабочий день (пн–пт)
+        day += dt.timedelta(days=1)
+    slots = (await cab.get("/api/cabinet/free-slots", headers=M,
+                           params={"service_id": 1, "date": day.isoformat()})).json()
+    assert slots[0][11:16] == "10:00" and slots[-1][11:16] == "17:00"
+
+
+async def test_manual_booking_flow(cab):
+    me = (await cab.get("/api/cabinet/me", headers=M)).json()
+    day = dt.date.fromisoformat(me["today"]) + dt.timedelta(days=5)
+    at = f"{day.isoformat()}T20:30:00{me['utc_offset']}"  # вне графика — мастеру можно
+
+    r = await cab.post("/api/cabinet/appointments", headers=M, json={
+        "service_id": 1, "starts_at": at, "client_name": "Ирина", "phone": "8 (914) 111-22-33",
+        "comment": "по звонку"})
+    assert r.status_code == 201, r.text
+    a = r.json()
+    assert a["source"] == "manual" and a["client"]["phone"] == "+79141112233"
+    assert a["starts_at"][11:16] == "20:30" and a["ends_at"][11:16] == "21:30"
+
+    # тот же телефон — тот же клиент; пересечение — 409
+    r = await cab.post("/api/cabinet/appointments", headers=M, json={
+        "service_id": 1, "starts_at": at.replace("20:30", "21:00"), "client_name": "Ирина Р.",
+        "phone": "+79141112233"})
+    assert r.status_code == 409
+    r = await cab.post("/api/cabinet/appointments", headers=M, json={
+        "service_id": 1, "starts_at": at.replace("20:30", "22:00"), "client_name": "Ирина Р.",
+        "phone": "+79141112233"})
+    assert r.status_code == 201 and r.json()["client"]["id"] == a["client"]["id"]
+
+    # подсказки по имени и телефону
+    hints = (await cab.get("/api/cabinet/clients", headers=M, params={"q": "ири"})).json()
+    assert [c["name"] for c in hints] == ["Ирина Р."]
+    hints = (await cab.get("/api/cabinet/clients", headers=M, params={"q": "1112233"})).json()
+    assert len(hints) == 1
+
+    # запись по client_id, прошлое время, нет имени
+    r = await cab.post("/api/cabinet/appointments", headers=M, json={
+        "service_id": 1, "starts_at": at.replace("20:30", "08:00"), "client_id": a["client"]["id"]})
+    assert r.status_code == 201
+    past = f"{(day - dt.timedelta(days=10)).isoformat()}T10:00:00{me['utc_offset']}"
+    r = await cab.post("/api/cabinet/appointments", headers=M, json={
+        "service_id": 1, "starts_at": past, "client_name": "Кто-то"})
+    assert r.status_code == 422
+    r = await cab.post("/api/cabinet/appointments", headers=M, json={
+        "service_id": 1, "starts_at": at.replace("20:30", "07:00")})
+    assert r.status_code == 422
+
+
+async def test_master_cancel_notifies_client(cab):
+    from app.models import Channel
+    from app.runtime import runtime
+    from tests.test_bot_flow import FakeMessenger
+
+    booked = await _book_as_client(cab)
+    fake = FakeMessenger()
+    runtime.messengers[Channel.MAX] = fake
+    try:
+        r = await cab.post(f"/api/cabinet/appointments/{booked['id']}/cancel", headers=M)
+        assert r.status_code == 204
+        assert any(uid == "111" and "отменил" in text for uid, text, _ in fake.sent)
+        r = await cab.post(f"/api/cabinet/appointments/{booked['id']}/cancel", headers=M)
+        assert r.status_code == 403
+        assert (await cab.post("/api/cabinet/appointments/999999/cancel", headers=M)).status_code == 404
+    finally:
+        runtime.reset()
+    items = (await cab.get("/api/cabinet/appointments", headers=M)).json()
+    assert items == []

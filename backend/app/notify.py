@@ -99,6 +99,21 @@ async def appointment_cancelled_by_client(session: AsyncSession, appointment_id:
     )
 
 
+async def appointment_cancelled_by_master(session: AsyncSession, appointment_id: int) -> None:
+    """Мастер отменил запись — сообщаем клиенту, если он на связи в мессенджере."""
+    loaded = await _load(session, appointment_id)
+    if loaded is None:
+        return
+    appt, client, master = loaded
+    when = fmt_when(appt.starts_at, ZoneInfo(master.timezone))
+    for contact in await _client_contacts(session, client.id):
+        await _send(
+            contact.channel, contact.external_user_id,
+            f"Мастер {master.name} отменил вашу запись\n{when}, {appt.service_name}\n\n"
+            "Чтобы выбрать другое время, откройте ссылку мастера ещё раз.",
+        )
+
+
 def reminder_text(kind: str, appt: Appointment, master: Master) -> str:
     when = fmt_when(appt.starts_at, ZoneInfo(master.timezone))
     lead = "Завтра" if kind == "day_before" else "Через 2 часа"

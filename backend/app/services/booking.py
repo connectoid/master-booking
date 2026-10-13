@@ -105,16 +105,20 @@ async def compute_slots(
     date_from: dt.date,
     date_to: dt.date,
     now: dt.datetime,
+    *,
+    for_master: bool = False,
 ) -> dict[dt.date, list[dt.datetime]]:
-    """Свободные слоты на услугу в диапазоне дат (локальные даты мастера)."""
+    """Свободные слоты на услугу в диапазоне дат (локальные даты мастера).
+
+    for_master=True — подсказки для ручной записи: без «минимума до визита» и горизонта.
+    """
     tz = ZoneInfo(master.timezone)
     today = master_today(master, now)
     date_from = max(date_from, today)
-    date_to = min(
-        date_to,
-        today + dt.timedelta(days=master.horizon_days),
-        date_from + dt.timedelta(days=MAX_DAYS_PER_REQUEST - 1),
-    )
+    limits = [date_to, date_from + dt.timedelta(days=MAX_DAYS_PER_REQUEST - 1)]
+    if not for_master:
+        limits.append(today + dt.timedelta(days=master.horizon_days))
+    date_to = min(limits)
     if date_to < date_from:
         return {}
 
@@ -160,7 +164,7 @@ async def compute_slots(
         rules=SlotRules(
             duration=dt.timedelta(minutes=service.duration_min),
             step=dt.timedelta(minutes=master.slot_step_min),
-            min_lead=dt.timedelta(minutes=master.min_lead_min),
+            min_lead=dt.timedelta(minutes=0 if for_master else master.min_lead_min),
             buffer=buffer,
         ),
         now=now,
@@ -327,6 +331,150 @@ async def cancel_appointment_by_client(
     if appointment.status not in [s.value for s in ACTIVE_STATUSES]:
         raise Forbidden("Эту запись уже нельзя отменить")
 
+    appointment.status = AppointmentStatus.CANCELLED.value
+    await session.execute(
+        update(Reminder)
+        .where(
+            Reminder.appointment_id == appointment.id,
+            Reminder.status == ReminderStatus.PENDING.value,
+        )
+        .values(status=ReminderStatus.CANCELLED.value)
+    )
+    await session.commit()
+    return appointment
+
+
+
+# ---------- записи глазами мастера ----------
+
+async def master_appointments(
+    session: AsyncSession, master: Master, start: dt.datetime, end: dt.datetime
+) -> list[tuple[Appointment, Client]]:
+    rows = await session.execute(
+        select(Appointment, Client)
+        .join(Client, Client.id == Appointment.client_id)
+        .where(
+            Appointment.master_id == master.id,
+            Appointment.status.in_([s.value for s in ACTIVE_STATUSES]),
+            Appointment.starts_at < end,
+            Appointment.ends_at > start,
+        )
+        .order_by(Appointment.starts_at)
+    )
+    return [(a, c) for a, c in rows]
+
+
+async def find_clients(session: AsyncSession, master: Master, query: str, limit: int = 10):
+    """Поиск клиентов мастера по имени или телефону — для подсказок при ручной записи.
+
+    Фильтруем в Python: регистр кириллицы в БД зависит от её локали, а клиентов у одного
+    мастера — сотни, не миллионы.
+    """
+    clients = list(await session.scalars(
+        select(Client).where(Client.master_id == master.id)
+        .order_by(Client.created_at.desc()).limit(2000)
+    ))
+    q = query.strip().casefold()
+    if not q:
+        return clients[:limit]
+    digits = "".join(ch for ch in q if ch.isdigit())
+    found = [
+        c for c in clients
+        if q in c.name.casefold() or (len(digits) >= 3 and c.phone and digits[-10:] in c.phone)
+    ]
+    return found[:limit]
+
+
+async def create_manual_appointment(
+    session: AsyncSession,
+    master: Master,
+    service: Service,
+    starts_at: dt.datetime,
+    *,
+    client_name: str,
+    phone: str | None = None,
+    client_id: int | None = None,
+    comment: str | None = None,
+    now: dt.datetime | None = None,
+) -> Appointment:
+    """Мастер записывает клиента сам (позвонил, пришёл лично).
+
+    Рабочие часы и минимум до визита не проверяются — мастер знает, что делает;
+    проверяются только прошлое время и пересечение с другими записями.
+    Клиент ищется по id или телефону, иначе создаётся новый.
+    """
+    now = now or utcnow()
+    if starts_at.tzinfo is None:
+        raise SlotUnavailable("Время записи должно быть с часовым поясом")
+    if starts_at < now - dt.timedelta(minutes=5):
+        raise SlotUnavailable("Это время уже прошло")
+
+    client = None
+    if client_id is not None:
+        client = await session.scalar(
+            select(Client).where(Client.id == client_id, Client.master_id == master.id)
+        )
+        if client is None:
+            raise NotFound("Клиент не найден")
+    elif phone:
+        client = await session.scalar(
+            select(Client).where(Client.master_id == master.id, Client.phone == phone)
+            .order_by(Client.id).limit(1)
+        )
+    if client is None:
+        client = Client(master_id=master.id, name=client_name[:120], phone=phone)
+        session.add(client)
+        await session.flush()
+    else:
+        if client_name:
+            client.name = client_name[:120]
+        if phone:
+            client.phone = phone
+
+    appointment = Appointment(
+        master_id=master.id,
+        client_id=client.id,
+        service_id=service.id,
+        service_name=service.name,
+        price=service.price,
+        starts_at=starts_at,
+        ends_at=starts_at + dt.timedelta(minutes=service.duration_min),
+        status=AppointmentStatus.CONFIRMED.value,
+        source="manual",
+        comment=comment or None,
+    )
+    session.add(appointment)
+    try:
+        await session.flush()
+    except IntegrityError as e:
+        await session.rollback()
+        if "ex_appointments_no_overlap" in str(e.orig):
+            raise SlotTaken("На это время уже есть запись") from e
+        raise
+
+    # напоминания — только если у клиента есть мессенджер (например, записывался раньше сам)
+    has_contact = await session.scalar(
+        select(func.count()).select_from(ClientContact).where(ClientContact.client_id == client.id)
+    )
+    if has_contact:
+        for kind, send_at in plan_reminders(appointment.starts_at, now):
+            session.add(Reminder(appointment_id=appointment.id, kind=kind, send_at=send_at))
+    await session.commit()
+    return appointment
+
+
+async def cancel_appointment_by_master(
+    session: AsyncSession, master: Master, appointment_id: int
+) -> Appointment:
+    appointment = await session.scalar(
+        select(Appointment).where(
+            Appointment.id == appointment_id, Appointment.master_id == master.id
+        )
+    )
+    if appointment is None:
+        raise NotFound("Запись не найдена")
+    if appointment.status not in [s.value for s in ACTIVE_STATUSES]:
+        raise Forbidden("Запись уже отменена или завершена")
     appointment.status = AppointmentStatus.CANCELLED.value
     await session.execute(
         update(Reminder)

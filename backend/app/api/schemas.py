@@ -1,7 +1,8 @@
 import datetime as dt
-import re
 
 from pydantic import AwareDatetime, BaseModel, Field, field_validator
+
+from app.domain.phone import normalize_phone
 
 
 class ServiceOut(BaseModel):
@@ -48,14 +49,7 @@ class AppointmentCreate(BaseModel):
     @classmethod
     def _phone(cls, v: str | None) -> str | None:
         """Принимаем «8 (914) 123-45-67», «+7 914 1234567» и т.п.; храним +7XXXXXXXXXX."""
-        if not v or not v.strip():
-            return None
-        digits = re.sub(r"\D", "", v)
-        if len(digits) == 11 and digits[0] in "78":
-            return "+7" + digits[1:]
-        if len(digits) == 10:
-            return "+7" + digits
-        raise ValueError("Неверный номер телефона")
+        return normalize_phone(v)
 
 
 class AppointmentOut(BaseModel):

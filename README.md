@@ -75,4 +75,6 @@ TEST_DATABASE_URL=postgresql+psycopg://booking:booking@localhost:5432/booking_te
 Открывается из бота кнопкой «Открыть кабинет» — ссылка `https://max.ru/<бот>?startapp=cabinet`.
 Доступ только мастеру: сервер сверяет пользователя из подписанного initData с `master_accounts`.
 API: `/api/cabinet/me`, `PUT /api/cabinet/schedule`, `PATCH /api/cabinet/settings`,
-`GET|PUT|DELETE /api/cabinet/overrides`. Сейчас в интерфейсе — недельный график.
+`GET|PUT|DELETE /api/cabinet/overrides`, записи: `GET|POST /api/cabinet/appointments`,
+`POST /api/cabinet/appointments/{id}/cancel`, `GET /api/cabinet/free-slots`, `/services`, `/clients`.
+В интерфейсе: вкладка «Записи» (14 дней, ручная запись, отмена) и «График» (недельный).

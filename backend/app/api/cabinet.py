@@ -9,17 +9,20 @@ import datetime as dt
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from pydantic import AwareDatetime, BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.bot import texts
 from app.bot.parsing import MAX_RANGE_DAYS, ParseError, check_ranges, days_between
 from app.channels.max.adapter import mini_app_link
+from app import notify
 from app.db import get_session
+from app.domain.phone import normalize_phone
 from app.models import Channel, Master
 from app.runtime import runtime
+from app.services import booking
 from app.services import masters as ms
 
 router = APIRouter(prefix="/api/cabinet", tags=["cabinet"])
@@ -94,6 +97,8 @@ class ConflictOut(BaseModel):
 class CabinetOut(BaseModel):
     slug: str
     name: str
+    today: dt.date      # сегодня по часовому поясу мастера
+    utc_offset: str     # «+12:00» — для времени, которое мастер вводит вручную
     client_link: str | None
     settings: Settings
     schedule: WeeklySchedule
@@ -133,9 +138,13 @@ def _client_link(master: Master, channel: Channel) -> str | None:
 @router.get("/me", response_model=CabinetOut)
 async def me(master: CurrentMaster, user: CurrentUser, session: Session) -> CabinetOut:
     weekly = await ms.get_weekly_schedule(session, master.id)
+    now_local = dt.datetime.now(ZoneInfo(master.timezone))
+    offset = now_local.strftime("%z")
     return CabinetOut(
         slug=master.slug,
         name=master.name,
+        today=now_local.date(),
+        utc_offset=f"{offset[:3]}:{offset[3:]}",
         client_link=_client_link(master, user.channel),
         settings=_settings_out(master),
         schedule=_weekly_out(weekly),
@@ -216,3 +225,138 @@ async def delete_overrides(
         raise HTTPException(422, "Неверный период")
     await ms.delete_overrides(session, master, start, end)
     await session.commit()
+
+
+
+# ---------- записи ----------
+
+class ClientOut(BaseModel):
+    id: int
+    name: str
+    phone: str | None
+
+
+class CabinetAppointment(BaseModel):
+    id: int
+    starts_at: dt.datetime
+    ends_at: dt.datetime
+    service_name: str
+    price: int | None
+    source: str
+    comment: str | None
+    client: ClientOut
+
+
+class ServiceBrief(BaseModel):
+    id: int
+    name: str
+    duration_min: int
+    price: int | None
+
+
+class ManualCreate(BaseModel):
+    service_id: int
+    starts_at: AwareDatetime
+    client_id: int | None = None
+    client_name: str = Field(default="", max_length=120)
+    phone: str | None = Field(default=None, max_length=32)
+    comment: str | None = Field(default=None, max_length=500)
+
+    @field_validator("phone")
+    @classmethod
+    def _phone(cls, v: str | None) -> str | None:
+        return normalize_phone(v)
+
+    @field_validator("client_name", "comment")
+    @classmethod
+    def _strip(cls, v: str | None) -> str | None:
+        return v.strip() if v else v
+
+
+_BOOKING_ERRORS = {
+    booking.NotFound: 404, booking.SlotUnavailable: 422, booking.SlotTaken: 409,
+    booking.Forbidden: 403, booking.DailyLimit: 409,
+}
+
+
+def _booking_http(e: booking.BookingError) -> HTTPException:
+    return HTTPException(_BOOKING_ERRORS.get(type(e), 400), e.message)
+
+
+def _appt_out(a, c, tz: ZoneInfo) -> CabinetAppointment:
+    return CabinetAppointment(
+        id=a.id, starts_at=a.starts_at.astimezone(tz), ends_at=a.ends_at.astimezone(tz),
+        service_name=a.service_name, price=a.price, source=a.source, comment=a.comment,
+        client=ClientOut(id=c.id, name=c.name, phone=c.phone),
+    )
+
+
+@router.get("/appointments", response_model=list[CabinetAppointment])
+async def list_appointments(
+    master: CurrentMaster,
+    session: Session,
+    date_from: dt.date | None = None,
+    days: Annotated[int, Query(ge=1, le=62)] = 14,
+):
+    tz = ZoneInfo(master.timezone)
+    start_day = date_from or _today(master)
+    start = dt.datetime.combine(start_day, dt.time.min, tzinfo=tz)
+    rows = await booking.master_appointments(session, master, start, start + dt.timedelta(days=days))
+    return [_appt_out(a, c, tz) for a, c in rows]
+
+
+@router.get("/services", response_model=list[ServiceBrief])
+async def list_services(master: CurrentMaster, session: Session):
+    return [
+        ServiceBrief(id=s.id, name=s.name, duration_min=s.duration_min, price=s.price)
+        for s in await booking.list_services(session, master.id)
+    ]
+
+
+@router.get("/free-slots", response_model=list[dt.datetime])
+async def free_slots(master: CurrentMaster, session: Session, service_id: int, date: dt.date):
+    """Свободное время по графику — подсказки для ручной записи (без «минимума до визита»)."""
+    try:
+        service = await booking.get_service(session, master, service_id)
+    except booking.BookingError as e:
+        raise _booking_http(e) from e
+    result = await booking.compute_slots(
+        session, master, service, date, date, booking.utcnow(), for_master=True
+    )
+    return result.get(date, [])
+
+
+@router.get("/clients", response_model=list[ClientOut])
+async def search_clients(master: CurrentMaster, session: Session, q: str = ""):
+    return [ClientOut(id=c.id, name=c.name, phone=c.phone)
+            for c in await booking.find_clients(session, master, q)]
+
+
+@router.post("/appointments", response_model=CabinetAppointment, status_code=201)
+async def create_manual(body: ManualCreate, master: CurrentMaster, session: Session):
+    if body.client_id is None and not body.client_name:
+        raise HTTPException(422, "Укажите имя клиента")
+    tz = ZoneInfo(master.timezone)
+    try:
+        service = await booking.get_service(session, master, body.service_id)
+        appt = await booking.create_manual_appointment(
+            session, master, service, body.starts_at,
+            client_name=body.client_name, phone=body.phone, client_id=body.client_id,
+            comment=body.comment,
+        )
+    except booking.BookingError as e:
+        raise _booking_http(e) from e
+    client = await session.get(booking.Client, appt.client_id)
+    return _appt_out(appt, client, tz)
+
+
+@router.post("/appointments/{appointment_id}/cancel", status_code=204)
+async def cancel(
+    appointment_id: int, master: CurrentMaster, session: Session, background: BackgroundTasks
+) -> None:
+    try:
+        await booking.cancel_appointment_by_master(session, master, appointment_id)
+    except booking.BookingError as e:
+        raise _booking_http(e) from e
+    if runtime.messengers:
+        await notify.appointment_cancelled_by_master(session, appointment_id)
