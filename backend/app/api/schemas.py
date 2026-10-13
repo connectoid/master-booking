@@ -15,6 +15,7 @@ class MasterOut(BaseModel):
     slug: str
     name: str
     timezone: str
+    one_booking_per_day: bool = False
     services: list[ServiceOut]
 
 

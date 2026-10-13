@@ -29,6 +29,7 @@ _ERROR_STATUS = {
     booking.SlotUnavailable: 422,
     booking.SlotTaken: status.HTTP_409_CONFLICT,
     booking.Forbidden: status.HTTP_403_FORBIDDEN,
+    booking.DailyLimit: status.HTTP_409_CONFLICT,
 }
 
 
@@ -58,6 +59,7 @@ async def get_master(slug: str, session: Session) -> MasterOut:
         slug=master.slug,
         name=master.name,
         timezone=master.timezone,
+        one_booking_per_day=master.one_booking_per_day,
         services=[
             ServiceOut(id=s.id, name=s.name, duration_min=s.duration_min, price=s.price)
             for s in services

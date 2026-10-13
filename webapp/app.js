@@ -22,6 +22,7 @@
   const state = {
     master: null, service: null, slots: null, day: null, slot: null,
     view: "services", appointment: null, my: [], sending: false, error: "", confirmCancel: null,
+    bookedDays: new Set(), // дни, на которые клиент уже записан (если мастер ограничил «1 в день»)
     form: { name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" "), phone: "", comment: "" },
   };
   const app = document.getElementById("app");
@@ -173,10 +174,19 @@
       const p = dateParts(d.date);
       return h("button", {
         class: "day" + (state.day === d.date ? " active" : ""),
+        disabled: state.bookedDays.has(d.date),
         onclick: () => { state.day = d.date; state.slot = null; haptic("select"); render(); },
       }, h("div", { class: "wd" }, p.wd), h("div", { class: "dn" }, p.day));
     })));
+    if (state.bookedDays.size) {
+      out.push(h("p", { class: "small muted" },
+        "Неактивные дни — у вас уже есть запись: мастер принимает одну запись в день."));
+    }
     const current = days.find((d) => d.date === state.day) || days[0];
+    if (state.bookedDays.has(current.date)) {
+      out.push(h("p", { class: "muted" }, "Выберите другой день."));
+      return out;
+    }
     out.push(h("h2", null, dayLabel(current.date)));
     out.push(h("div", { class: "slots" }, current.slots.map((iso) =>
       h("button", {
@@ -287,8 +297,10 @@
   async function loadSlots() {
     try {
       state.slots = await api(`/masters/${encodeURIComponent(slug)}/slots?service_id=${state.service.id}&days=14`);
-      const first = state.slots.days[0];
-      if (!state.day || !state.slots.days.some((d) => d.date === state.day)) {
+      const first = state.slots.days.find((d) => !state.bookedDays.has(d.date))
+        || state.slots.days[0];
+      if (!state.day || !state.slots.days.some((d) => d.date === state.day)
+          || state.bookedDays.has(state.day)) {
         state.day = first ? first.date : null;
       }
     } catch (e) {
@@ -327,6 +339,7 @@
       haptic("success");
       state.sending = false;
       go("done");
+      loadBookedDays();
     } catch (e) {
       haptic("error");
       state.sending = false;
@@ -370,10 +383,20 @@
       haptic("success");
       state.my = state.my.filter((x) => x.id !== a.id);
       state.error = "";
+      loadBookedDays();
     } catch (e) {
       state.error = e.message;
     }
     render();
+  }
+
+  async function loadBookedDays() {
+    if (!state.master.one_booking_per_day || channel === "web") return;
+    try {
+      const my = await api(`/masters/${encodeURIComponent(slug)}/appointments/my`);
+      state.bookedDays = new Set(my.map((a) => a.starts_at.slice(0, 10)));
+      if (state.view === "slots") render();
+    } catch (_) { /* не критично: сервер всё равно проверит */ }
   }
 
   // ---------- старт ----------
@@ -391,6 +414,7 @@
     }
     document.title = `${state.master.name} — запись`;
     go("services");
+    loadBookedDays();
   }
 
   start();

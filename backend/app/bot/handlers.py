@@ -12,7 +12,18 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot import texts
-from app.bot.parsing import ParseError, format_schedule, parse_schedule, parse_services
+from app.bot.parsing import (
+    ParseError,
+    format_overrides,
+    format_period,
+    format_schedule,
+    group_overrides,
+    parse_date_range,
+    parse_exceptions,
+    parse_schedule,
+    parse_services,
+    week_overrides,
+)
 from app.bot.state import clear_state, get_state, set_state
 from app.bot.ui import Button, Event, Keyboard, Messenger
 from app.channels.identity import ChannelUser
@@ -29,10 +40,14 @@ ONB_NAME = "onb_name"
 ONB_TZ = "onb_tz"
 SVC_ADD = "svc_add"
 SCH_EDIT = "sch_edit"
+OFF_ADD = "off_add"
+WEEK_DATES = "week_dates"
+WEEK_SCHED = "week_sched"
 
 MENU: Keyboard = [
     [Button("Записи сегодня", payload="m:today"), Button("На неделю", payload="m:week")],
     [Button("Услуги", payload="m:services"), Button("График", payload="m:schedule")],
+    [Button("Выходные и отпуск", payload="m:off"), Button("Настройки", payload="m:settings")],
     [Button("Ссылка для клиентов", payload="m:link")],
 ]
 
@@ -184,6 +199,15 @@ async def master_flow(ctx: Ctx, master: Master) -> None:
     if e.kind == "text" and state == SCH_EDIT:
         await master_set_schedule(ctx, master, e.text)
         return
+    if e.kind == "text" and state == OFF_ADD:
+        await master_add_exceptions(ctx, master, e.text)
+        return
+    if e.kind == "text" and state == WEEK_DATES:
+        await master_week_dates(ctx, master, e.text)
+        return
+    if e.kind == "text" and state == WEEK_SCHED:
+        await master_week_schedule(ctx, master, e.text)
+        return
 
     await clear_state(ctx.session, ctx.channel, e.user_id)
     await show_menu(ctx, master)
@@ -220,6 +244,43 @@ async def master_callback(ctx: Ctx, master: Master, payload: str) -> None:
         await ctx.reply(texts.SCHEDULE_HELP)
     elif payload == "m:link":
         await show_link(ctx, master)
+    elif payload == "m:off":
+        await show_exceptions(ctx, master)
+    elif payload == "m:off_add":
+        await set_state(ctx.session, ctx.channel, uid, OFF_ADD)
+        await ctx.reply(texts.OFF_HELP, [[Button("Отмена", payload="m:off")]])
+    elif payload == "m:week_add":
+        await set_state(ctx.session, ctx.channel, uid, WEEK_DATES)
+        await ctx.reply(texts.WEEK_DATES_HELP, [[Button("Отмена", payload="m:off")]])
+    elif payload.startswith("m:off_del:"):
+        await master_delete_exception(ctx, master, payload.removeprefix("m:off_del:"))
+    elif payload == "m:settings":
+        await clear_state(ctx.session, ctx.channel, uid)
+        await show_settings(ctx, master)
+    elif payload.startswith("m:lead:") and payload.removeprefix("m:lead:").isdigit():
+        await ms.update_settings(ctx.session, master,
+                                 min_lead_min=int(payload.removeprefix("m:lead:")))
+        await ctx.toast("Сохранено")
+        await show_settings(ctx, master)
+    elif payload.startswith("m:horizon:") and payload.removeprefix("m:horizon:").isdigit():
+        days = int(payload.removeprefix("m:horizon:"))
+        if days in texts.HORIZON_OPTIONS:
+            await ms.update_settings(ctx.session, master, horizon_days=days)
+            await ctx.toast("Сохранено")
+        await show_settings(ctx, master)
+    elif payload == "m:oneday":
+        await ms.update_settings(ctx.session, master,
+                                 one_booking_per_day=not master.one_booking_per_day)
+        await ctx.toast("Сохранено")
+        await show_settings(ctx, master)
+    elif payload == "m:settings_tz":
+        await ctx.reply(texts.ASK_TZ, tz_keyboard())
+    elif payload.startswith("m:tz:"):
+        tz = payload.removeprefix("m:tz:")
+        if tz in texts.TIMEZONE_IDS:
+            await ms.update_settings(ctx.session, master, timezone=tz)
+            await ctx.toast("Часовой пояс сохранён")
+        await show_settings(ctx, master)
     else:
         await show_menu(ctx, master)
 
@@ -280,6 +341,137 @@ async def master_set_schedule(ctx: Ctx, master: Master, text: str) -> None:
     await clear_state(ctx.session, ctx.channel, ctx.event.user_id)
     await ctx.reply("График сохранён:\n" + format_schedule(weekly))
     await show_link(ctx, master)
+
+
+def master_today(master: Master) -> dt.date:
+    return dt.datetime.now(ZoneInfo(master.timezone)).date()
+
+
+async def show_exceptions(ctx: Ctx, master: Master, prefix: str = "") -> None:
+    await clear_state(ctx.session, ctx.channel, ctx.event.user_id)
+    overrides = await ms.upcoming_overrides(ctx.session, master.id, master_today(master))
+    if overrides:
+        body = "Особые дни (вместо обычного графика):\n" + format_overrides(overrides)
+    else:
+        body = "Особых дней нет — работаете по обычному графику."
+    kb: Keyboard = [
+        [Button("Добавить выходные или часы", payload="m:off_add")],
+        [Button("График на неделю", payload="m:week_add")],
+    ]
+    for start, end, _ in group_overrides(overrides)[:10]:
+        kb.append([Button(f"Удалить {format_period(start, end)}",
+                          payload=f"m:off_del:{start.isoformat()}:{end.isoformat()}")])
+    kb.append([Button("Меню", payload="m:menu")])
+    await ctx.reply((prefix + "\n\n" if prefix else "") + body, kb)
+
+
+async def _warn_existing(ctx: Ctx, master: Master, days: list[dt.date]) -> str:
+    rows = await ms.appointments_on_days(ctx.session, master, days)
+    if not rows:
+        return ""
+    tz = ZoneInfo(master.timezone)
+    lines = [
+        f"{texts.fmt_when(a.starts_at, tz)} — {c.name}" + (f", {c.phone}" if c.phone else "")
+        for a, c in rows[:15]
+    ]
+    return ("\n\nНа эти даты уже есть записи — они сохранены, договоритесь с клиентами о "
+            "переносе или отмене:\n" + "\n".join(lines))
+
+
+async def _retry(ctx: Ctx, err: ParseError, back: str = "m:off") -> None:
+    await ctx.reply(f"{err}\n\nПопробуйте ещё раз.", [[Button("Отмена", payload=back)]])
+
+
+async def master_add_exceptions(ctx: Ctx, master: Master, text: str) -> None:
+    try:
+        overrides = parse_exceptions(text, master_today(master))
+    except ParseError as err:
+        await _retry(ctx, err)
+        return
+    await ms.set_overrides(ctx.session, master, overrides)
+    warn = await _warn_existing(ctx, master, list(overrides))
+    await show_exceptions(ctx, master, prefix="Сохранено:\n" + format_overrides(overrides) + warn)
+
+
+async def master_week_dates(ctx: Ctx, master: Master, text: str) -> None:
+    try:
+        start, end = parse_date_range(text, master_today(master))
+    except ParseError as err:
+        await _retry(ctx, err)
+        return
+    if (end - start).days > 30:
+        await _retry(ctx, ParseError("Для особого графика — не больше месяца за раз"))
+        return
+    await set_state(ctx.session, ctx.channel, ctx.event.user_id, WEEK_SCHED,
+                    {"start": start.isoformat(), "end": end.isoformat()})
+    await ctx.reply(f"Период: {format_period(start, end)}.\n\n" + texts.WEEK_SCHEDULE_HELP,
+                    [[Button("Отмена", payload="m:off")]])
+
+
+async def master_week_schedule(ctx: Ctx, master: Master, text: str) -> None:
+    _, data = await get_state(ctx.session, ctx.channel, ctx.event.user_id)
+    try:
+        start = dt.date.fromisoformat(data["start"])
+        end = dt.date.fromisoformat(data["end"])
+        weekly = parse_schedule(text)
+    except (KeyError, ValueError) as err:
+        if isinstance(err, ParseError):
+            await _retry(ctx, err)
+        else:
+            await show_exceptions(ctx, master)
+        return
+    overrides = week_overrides(start, end, weekly)
+    await ms.set_overrides(ctx.session, master, overrides)
+    warn = await _warn_existing(ctx, master, list(overrides))
+    await show_exceptions(
+        ctx, master,
+        prefix=f"Особый график на {format_period(start, end)} сохранён:\n"
+               + format_overrides(overrides) + warn,
+    )
+
+
+async def master_delete_exception(ctx: Ctx, master: Master, raw: str) -> None:
+    try:
+        start_s, end_s = raw.split(":")
+        start, end = dt.date.fromisoformat(start_s), dt.date.fromisoformat(end_s)
+    except ValueError:
+        await show_exceptions(ctx, master)
+        return
+    await ms.delete_overrides(ctx.session, master, start, end)
+    await ctx.toast("Удалено")
+    await show_exceptions(ctx, master,
+                          prefix=f"{format_period(start, end)}: снова по обычному графику.")
+
+
+async def show_settings(ctx: Ctx, master: Master) -> None:
+    tz_title = next((t for t, tz in texts.TIMEZONES if tz == master.timezone), master.timezone)
+    text = (
+        "Настройки записи\n\n"
+        f"Запись: {texts.fmt_lead(master.min_lead_min)}\n"
+        f"Запись открыта на {master.horizon_days} дн. вперёд\n"
+        "Одна запись в день на клиента: "
+        f"{'включено' if master.one_booking_per_day else 'выключено'}\n"
+        f"Часовой пояс: {tz_title}"
+    )
+    lead_row = [
+        Button(("• " if value == master.min_lead_min else "") + title, payload=f"m:lead:{value}")
+        for value, title in texts.LEAD_OPTIONS
+    ]
+    horizon_row = [
+        Button(("• " if d == master.horizon_days else "") + f"{d} дн", payload=f"m:horizon:{d}")
+        for d in texts.HORIZON_OPTIONS
+    ]
+    kb: Keyboard = [
+        [Button("Минимум до визита:", payload="m:settings")],
+        lead_row[:4], lead_row[4:],
+        [Button("Открыть запись вперёд на:", payload="m:settings")],
+        horizon_row,
+        [Button(("Выключить" if master.one_booking_per_day else "Включить")
+                + " «одна запись в день»", payload="m:oneday")],
+        [Button("Сменить часовой пояс", payload="m:settings_tz")],
+        [Button("Меню", payload="m:menu")],
+    ]
+    await ctx.reply(text, kb)
 
 
 async def show_link(ctx: Ctx, master: Master) -> None:

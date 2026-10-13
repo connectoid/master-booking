@@ -7,7 +7,7 @@ import random
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.parsing import ParsedService, Weekly
+from app.bot.parsing import DateOverrides, ParsedService, Weekly
 from app.domain.slugs import slug_base
 from app.models import (
     ACTIVE_STATUSES,
@@ -16,6 +16,7 @@ from app.models import (
     Client,
     Master,
     MasterAccount,
+    ScheduleOverride,
     Service,
     WorkingInterval,
 )
@@ -154,3 +155,77 @@ async def appointments_between(
         .order_by(Appointment.starts_at)
     )
     return [(a, c) for a, c in rows]
+
+
+# ---------- исключения по датам: выходные, отпуск, другие часы ----------
+
+async def upcoming_overrides(
+    session: AsyncSession, master_id: int, from_day: dt.date
+) -> DateOverrides:
+    result: DateOverrides = {}
+    for ov in await session.scalars(
+        select(ScheduleOverride)
+        .where(ScheduleOverride.master_id == master_id, ScheduleOverride.day >= from_day)
+        .order_by(ScheduleOverride.day, ScheduleOverride.start_time)
+    ):
+        ranges = result.setdefault(ov.day, [])
+        if ov.start_time is not None and ov.end_time is not None:
+            ranges.append((ov.start_time, ov.end_time))
+    return result
+
+
+async def set_overrides(session: AsyncSession, master: Master, overrides: DateOverrides) -> None:
+    """Заменяет исключения на указанные даты. Пустой список часов — выходной."""
+    if not overrides:
+        return
+    await session.execute(delete(ScheduleOverride).where(
+        ScheduleOverride.master_id == master.id,
+        ScheduleOverride.day.in_(list(overrides)),
+    ))
+    for day, ranges in overrides.items():
+        if not ranges:
+            session.add(ScheduleOverride(master_id=master.id, day=day))
+        for start, end in ranges:
+            session.add(ScheduleOverride(
+                master_id=master.id, day=day, start_time=start, end_time=end
+            ))
+    await session.flush()
+
+
+async def delete_overrides(
+    session: AsyncSession, master: Master, start: dt.date, end: dt.date
+) -> int:
+    result = await session.execute(delete(ScheduleOverride).where(
+        ScheduleOverride.master_id == master.id,
+        ScheduleOverride.day.between(start, end),
+    ))
+    return result.rowcount or 0
+
+
+async def appointments_on_days(
+    session: AsyncSession, master: Master, days: list[dt.date]
+) -> list[tuple[Appointment, Client]]:
+    """Активные записи на указанные даты (по времени мастера)."""
+    if not days:
+        return []
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(master.timezone)
+    wanted = set(days)
+    start = dt.datetime.combine(min(days), dt.time.min, tzinfo=tz)
+    end = dt.datetime.combine(max(days) + dt.timedelta(days=1), dt.time.min, tzinfo=tz)
+    rows = await appointments_between(session, master.id, start, end)
+    return [(a, c) for a, c in rows if a.starts_at.astimezone(tz).date() in wanted]
+
+
+# ---------- настройки ----------
+
+SETTINGS_FIELDS = {"min_lead_min", "horizon_days", "one_booking_per_day", "timezone"}
+
+
+async def update_settings(session: AsyncSession, master: Master, **fields) -> None:
+    for key, value in fields.items():
+        if key not in SETTINGS_FIELDS:
+            raise ValueError(key)
+        setattr(master, key, value)
+    await session.flush()

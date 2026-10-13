@@ -205,3 +205,101 @@ async def test_webhook_secret_and_dispatch(bot):
     finally:
         app.dependency_overrides.clear()
     assert "Окошко" in fake.last("555")[0]
+
+
+async def test_days_off_week_schedule_and_settings(bot):
+    from app.runtime import runtime
+    from app.services import booking
+
+    fake, engine = bot
+    await register_master(fake)
+    await send("text", text="Маникюр, 60, 1000")
+    await send("text", text="пн-вс 10-18")
+    slug = await scalar(engine, "SELECT slug FROM masters")
+    tz = ZoneInfo("Asia/Kamchatka")
+    today = dt.datetime.now(tz).date()
+    d1, d2 = today + dt.timedelta(days=5), today + dt.timedelta(days=6)
+
+    async def slots_on(day):
+        async with runtime.session_factory() as s:
+            m = await booking.get_master(s, slug)
+            svc = (await booking.list_services(s, m.id))[0]
+            res = await booking.compute_slots(s, m, svc, day, day, booking.utcnow())
+            return [x.astimezone(tz).strftime("%H:%M") for x in res.get(day, [])]
+
+    assert (await slots_on(d1))[0] == "10:00"
+
+    # выходной и другие часы
+    await send("callback", payload="m:off")
+    assert "Особых дней нет" in fake.last()[0]
+    await send("callback", payload="m:off_add")
+    await send("text", text=f"{d1:%d.%m}\n{d2:%d.%m} 14-16")
+    text, kb = fake.last()
+    assert "Сохранено" in text and "выходной" in text
+    assert await slots_on(d1) == []
+    assert await slots_on(d2) == ["14:00", "14:15", "14:30", "14:45", "15:00"]
+
+    # удаление возвращает обычный график
+    payload = next(b.payload for row in kb for b in row
+                   if b.payload and b.payload.startswith(f"m:off_del:{d1.isoformat()}"))
+    await send("callback", payload=payload)
+    assert (await slots_on(d1))[0] == "10:00"
+
+    # график на неделю
+    start = today + dt.timedelta(days=10)
+    end = start + dt.timedelta(days=6)
+    await send("callback", payload="m:week_add")
+    await send("text", text=f"{start:%d.%m}-{end:%d.%m}")
+    assert "Период" in fake.last()[0]
+    await send("text", text="пн-пт 12-14")
+    assert "Особый график" in fake.last()[0]
+    weekend = next(start + dt.timedelta(days=i) for i in range(7)
+                   if (start + dt.timedelta(days=i)).weekday() == 6)
+    weekday = next(start + dt.timedelta(days=i) for i in range(7)
+                   if (start + dt.timedelta(days=i)).weekday() == 0)
+    assert await slots_on(weekend) == []
+    assert (await slots_on(weekday))[0] == "12:00"
+
+    # настройки: минимум за сутки, одна запись в день, горизонт
+    await send("callback", payload="m:settings")
+    assert "Одна запись в день на клиента: выключено" in fake.last()[0]
+    await send("callback", payload="m:lead:1440")
+    await send("callback", payload="m:oneday")
+    await send("callback", payload="m:horizon:14")
+    text = fake.last()[0]
+    assert "не позже чем за сутки" in text and "включено" in text and "14 дн." in text
+    assert await scalar(engine, "SELECT min_lead_min FROM masters") == 1440
+    assert await slots_on(today) == []  # сегодня — меньше суток
+    assert await slots_on(today + dt.timedelta(days=20)) == []  # за горизонтом
+
+
+async def test_one_booking_per_day_limit(bot):
+    from app.channels.identity import ChannelUser
+    from app.runtime import runtime
+    from app.services import booking
+
+    fake, engine = bot
+    await register_master(fake)
+    await send("text", text="Маникюр, 60, 1000")
+    await send("text", text="пн-вс 10-18")
+    slug = await scalar(engine, "SELECT slug FROM masters")
+    tz = ZoneInfo("Asia/Kamchatka")
+    day = dt.datetime.now(tz).date() + dt.timedelta(days=3)
+    client = ChannelUser(Channel.MAX, CLIENT, "Ольга")
+
+    async def book(offset):
+        async with runtime.session_factory() as s:
+            m = await booking.get_master(s, slug)
+            svc = (await booking.list_services(s, m.id))[0]
+            slots = await booking.compute_slots(s, m, svc, day + dt.timedelta(days=offset),
+                                                day + dt.timedelta(days=offset), booking.utcnow())
+            return await booking.create_appointment(
+                s, m, svc, slots[day + dt.timedelta(days=offset)][0], client)
+
+    await book(0)
+    await book(0)  # ограничение выключено — вторая запись в тот же день можно
+    await scalar(engine, "UPDATE masters SET one_booking_per_day = true RETURNING id")
+    with pytest.raises(booking.DailyLimit):
+        await book(0)
+    await book(1)  # другой день — можно
+    assert await scalar(engine, "SELECT count(*) FROM appointments") == 3

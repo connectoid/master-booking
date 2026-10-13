@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as dt
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,10 @@ class SlotTaken(BookingError):
 
 
 class Forbidden(BookingError):
+    pass
+
+
+class DailyLimit(BookingError):
     pass
 
 
@@ -232,6 +236,8 @@ async def create_appointment(
         raise SlotUnavailable("Это время недоступно, выберите другое")
 
     client = await get_or_create_client(session, master, user, client_name, phone)
+    if master.one_booking_per_day:
+        await _check_daily_limit(session, master, client, day)
     appointment = Appointment(
         master_id=master.id,
         client_id=client.id,
@@ -258,6 +264,31 @@ async def create_appointment(
 
     await session.commit()
     return appointment
+
+
+async def _check_daily_limit(
+    session: AsyncSession, master: Master, client: Client, day: dt.date
+) -> None:
+    """Не больше одной активной записи клиента на день (по времени мастера)."""
+    if client.id is None:
+        return
+    # блокируем клиента, чтобы две одновременные записи не проскочили проверку
+    await session.execute(select(Client.id).where(Client.id == client.id).with_for_update())
+    tz = ZoneInfo(master.timezone)
+    start = dt.datetime.combine(day, dt.time.min, tzinfo=tz)
+    count = await session.scalar(
+        select(func.count()).select_from(Appointment).where(
+            Appointment.client_id == client.id,
+            Appointment.status.in_([s.value for s in ACTIVE_STATUSES]),
+            Appointment.starts_at >= start,
+            Appointment.starts_at < start + dt.timedelta(days=1),
+        )
+    )
+    if count:
+        raise DailyLimit(
+            "У вас уже есть запись на этот день. Выберите другой день "
+            "или отмените текущую запись в «Мои записи»."
+        )
 
 
 async def list_client_appointments(

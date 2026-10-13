@@ -110,6 +110,24 @@ def _parse_days(raw: str) -> list[int]:
     return days
 
 
+def parse_ranges(times_raw: str, line: str = "") -> list[TimeRange]:
+    """«10-14, 15-19» → [(10:00, 14:00), (15:00, 19:00)] без пересечений."""
+    ranges: list[TimeRange] = []
+    for part in re.split(r"\s*,\s*", times_raw.strip()):
+        bounds = re.split(r"\s*[-–—]\s*", part)
+        if len(bounds) != 2:
+            raise ParseError(f"Не понял интервал «{part}». Пример: 10:00-19:00")
+        start, end = _parse_time(bounds[0]), _parse_time(bounds[1])
+        if start >= end:
+            raise ParseError(f"Интервал «{part}»: начало должно быть раньше конца")
+        ranges.append((start, end))
+    ranges.sort()
+    for (_, e1), (s2, _) in zip(ranges, ranges[1:], strict=False):
+        if s2 < e1:
+            raise ParseError(f"Интервалы в строке «{line or times_raw}» пересекаются")
+    return ranges
+
+
 def parse_schedule(text: str) -> Weekly:
     """Строки вида «пн-пт 10-19», «сб 11:00-16:00», «пн,ср 10-14, 15-19», «вс выходной».
 
@@ -133,19 +151,7 @@ def parse_schedule(text: str) -> Weekly:
             for d in days:
                 weekly[d] = []
             continue
-        ranges: list[TimeRange] = []
-        for part in re.split(r"\s*,\s*", times_raw):
-            bounds = re.split(r"\s*[-–—]\s*", part)
-            if len(bounds) != 2:
-                raise ParseError(f"Не понял интервал «{part}». Пример: 10:00-19:00")
-            start, end = _parse_time(bounds[0]), _parse_time(bounds[1])
-            if start >= end:
-                raise ParseError(f"Интервал «{part}»: начало должно быть раньше конца")
-            ranges.append((start, end))
-        ranges.sort()
-        for (_, e1), (s2, _) in zip(ranges, ranges[1:], strict=False):
-            if s2 < e1:
-                raise ParseError(f"Интервалы в строке «{line}» пересекаются")
+        ranges = parse_ranges(times_raw, line)
         for d in days:
             weekly[d] = list(ranges)
     if not seen_any:
@@ -169,4 +175,109 @@ def format_schedule(weekly: Weekly) -> str:
         days = DAY_TITLES[d] if d == j else f"{DAY_TITLES[d]}–{DAY_TITLES[j]}"
         lines.append(f"{days}: {_fmt_ranges(ranges) if ranges else 'выходной'}")
         d = j + 1
+    return "\n".join(lines)
+
+
+
+# ---------- даты: выходные, отпуск, график на неделю ----------
+
+MAX_RANGE_DAYS = 92
+DateOverrides = dict[dt.date, list[TimeRange]]  # пустой список — выходной
+_DATE = r"\d{1,2}\.\d{1,2}(?:\.\d{2,4})?"
+
+
+def parse_date(raw: str, today: dt.date) -> dt.date:
+    """«25.10», «25.10.2026», «25.10.26». Без года — ближайшая такая дата не раньше сегодня."""
+    parts = raw.strip().split(".")
+    try:
+        day, month = int(parts[0]), int(parts[1])
+        if len(parts) == 3:
+            year = int(parts[2])
+            year = year + 2000 if year < 100 else year
+            result = dt.date(year, month, day)
+        else:
+            result = dt.date(today.year, month, day)
+            if result < today:
+                result = dt.date(today.year + 1, month, day)
+    except (ValueError, IndexError):
+        raise ParseError(f"Не понял дату «{raw.strip()}». Пример: 25.10") from None
+    if result < today:
+        raise ParseError(f"Дата {result:%d.%m.%Y} уже прошла")
+    return result
+
+
+def parse_date_range(raw: str, today: dt.date) -> tuple[dt.date, dt.date]:
+    """«25.10» или «1.11-10.11» → (начало, конец) включительно."""
+    m = re.fullmatch(rf"\s*({_DATE})\s*(?:[-–—]\s*({_DATE}))?\s*", raw)
+    if not m:
+        raise ParseError(f"Не понял даты «{raw.strip()}». Пример: 25.10 или 1.11-10.11")
+    start = parse_date(m[1], today)
+    end = parse_date(m[2], start) if m[2] else start
+    if end < start:
+        raise ParseError("Конец периода раньше начала")
+    if (end - start).days >= MAX_RANGE_DAYS:
+        raise ParseError(f"Слишком длинный период — не больше {MAX_RANGE_DAYS} дней за раз")
+    return start, end
+
+
+def days_between(start: dt.date, end: dt.date) -> list[dt.date]:
+    return [start + dt.timedelta(days=i) for i in range((end - start).days + 1)]
+
+
+def parse_exceptions(text: str, today: dt.date) -> DateOverrides:
+    """Строки «25.10» / «1.11-10.11 отпуск» (выходные) или «26.10 12-16» (другие часы)."""
+    result: DateOverrides = {}
+    for line in text.splitlines():
+        line = line.strip().lower()
+        if not line:
+            continue
+        m = re.match(rf"^({_DATE}(?:\s*[-–—]\s*{_DATE})?)\s*(.*)$", line)
+        if not m:
+            raise ParseError(f"Строка «{line}»: начните с даты. Пример: 25.10 выходной")
+        start, end = parse_date_range(m[1], today)
+        rest = m[2].strip(" —-:")
+        if not rest or rest.startswith(("выходн", "отпуск", "нет", "не работаю", "больничн")):
+            ranges: list[TimeRange] = []
+        else:
+            ranges = parse_ranges(rest, line)
+        for d in days_between(start, end):
+            result[d] = list(ranges)
+    if not result:
+        raise ParseError("Пустое сообщение. Пример: 25.10 выходной")
+    return result
+
+
+def week_overrides(start: dt.date, end: dt.date, weekly: Weekly) -> DateOverrides:
+    """Недельный график, применённый к конкретным датам (не указанные дни — выходные)."""
+    return {d: list(weekly.get(d.weekday(), [])) for d in days_between(start, end)}
+
+
+MONTHS_SHORT = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+
+
+def _fmt_date(d: dt.date) -> str:
+    return f"{d.day} {MONTHS_SHORT[d.month - 1]}"
+
+
+def group_overrides(overrides: DateOverrides) -> list[tuple[dt.date, dt.date, list[TimeRange]]]:
+    """Склеивает подряд идущие даты с одинаковыми часами: [(начало, конец, часы)]."""
+    groups: list[tuple[dt.date, dt.date, list[TimeRange]]] = []
+    for d in sorted(overrides):
+        ranges = sorted(overrides[d])
+        if groups and groups[-1][1] + dt.timedelta(days=1) == d and groups[-1][2] == ranges:
+            groups[-1] = (groups[-1][0], d, ranges)
+        else:
+            groups.append((d, d, ranges))
+    return groups
+
+
+def format_period(start: dt.date, end: dt.date) -> str:
+    return _fmt_date(start) if start == end else f"{_fmt_date(start)} – {_fmt_date(end)}"
+
+
+def format_overrides(overrides: DateOverrides) -> str:
+    lines = []
+    for start, end, ranges in group_overrides(overrides):
+        what = _fmt_ranges(ranges) if ranges else "выходной"
+        lines.append(f"{format_period(start, end)}: {what}")
     return "\n".join(lines)

@@ -79,6 +79,7 @@ class Master(Base):
     min_lead_min: Mapped[int] = mapped_column(Integer, server_default="60")
     horizon_days: Mapped[int] = mapped_column(SmallInteger, server_default="30")
     buffer_min: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    one_booking_per_day: Mapped[bool] = mapped_column(Boolean, server_default="false")
     trial_ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     paid_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = _now_default()
