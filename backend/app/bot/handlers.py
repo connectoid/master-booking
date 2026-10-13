@@ -240,7 +240,7 @@ async def master_callback(ctx: Ctx, master: Master, payload: str) -> None:
         await set_state(ctx.session, ctx.channel, uid, SVC_ADD)
         await ctx.reply(texts.SERVICES_HELP)
     elif payload.startswith("m:svc_del:") and payload.removeprefix("m:svc_del:").isdigit():
-        removed = await ms.deactivate_service(
+        removed = await ms.delete_service(
             ctx.session, master, int(payload.removeprefix("m:svc_del:"))
         )
         await ctx.toast("Услуга удалена" if removed else "Услуга уже удалена")

@@ -273,3 +273,21 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.2);
 }
+
+/* услуги */
+.svc { display: flex; align-items: center; gap: 10px; margin-bottom: 0; padding: 0 10px 0 0; }
+.svc-main {
+  flex: 1; min-width: 0; text-align: left; border: 0; background: none; color: inherit;
+  font: inherit; padding: 12px 0 12px 14px; cursor: pointer;
+}
+.svc-main .title { font-weight: 600; }
+.svc-main .meta { font-size: 14px; color: var(--muted); margin-top: 2px; }
+.svc.hidden .svc-main { opacity: 0.55; }
+.svc-move { display: flex; gap: 6px; flex: none; }
+.svc-move .icon-btn { width: 32px; height: 32px; font-size: 16px; }
+.svc-move .icon-btn[disabled] { opacity: 0.3; cursor: default; }
+.badge.muted-badge { background: var(--line); color: var(--muted); }
+.center-hint { text-align: center; margin-top: 10px; }
+.list + .btn { margin-top: 12px; }
+.btn.secondary.danger { margin-top: 10px; }
+.tabs .tab { font-size: 13px; padding: 9px 2px; letter-spacing: -0.1px; }

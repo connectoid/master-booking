@@ -1,4 +1,4 @@
-// Окошко — кабинет мастера: записи (календарь + ручная запись) и недельный график.
+// Окошко — кабинет мастера: записи, услуги, график, особые дни, настройки.
 (function () {
   "use strict";
 
@@ -9,7 +9,9 @@
   const app = document.getElementById("app");
 
   const state = {
-    tab: "appointments", // appointments | schedule | days | settings
+    tab: "appointments", // appointments | services | schedule | days | settings
+    svcList: null,       // все услуги мастера, включая скрытые
+    svcEdit: null,       // форма услуги: {id|null, name, duration, price, active, confirmDelete}
     nameDraft: null,     // имя для клиентов, пока мастер его редактирует
     cal: null,           // календарь особых дней: {month, overrides, counts, selected, range, mode, ...}
     view: "list",        // list | new (внутри вкладки «Записи»)
@@ -357,7 +359,7 @@
       h("label", null, "Услуга"),
     ];
     if (!state.services) out.push(h("div", { class: "muted" }, "Загрузка…"));
-    else if (!state.services.length) out.push(h("p", { class: "muted" }, "Сначала добавьте услуги в боте."));
+    else if (!state.services.length) out.push(h("p", { class: "muted" }, "Сначала добавьте услуги на вкладке «Услуги»."));
     else {
       out.push(h("div", { class: "chips" }, state.services.map((s) =>
         h("button", { class: "chip" + (f.serviceId === s.id ? " active" : ""), onclick: () => pickService(s.id) },
@@ -674,8 +676,20 @@
     ];
   }
 
-  // ---------- настройки ----------
+  // всплывающее подтверждение внизу экрана, само исчезает
   let toastTimer = null;
+  function toast() {
+    if (!state.notice) return null;
+    clearTimeout(toastTimer);
+    const shown = state.notice;
+    const tab = state.tab;
+    toastTimer = setTimeout(() => {
+      if (state.notice === shown) { state.notice = ""; if (state.tab === tab) renderKeepFocus(); }
+    }, 2500);
+    return h("div", { class: "toast" }, state.notice);
+  }
+
+  // ---------- настройки ----------
   async function patchSettings(patch, okText) {
     state.error = "";
     try {
@@ -716,15 +730,8 @@
     const name = state.nameDraft === null ? st.name : state.nameDraft;
     const nameChanged = state.nameDraft !== null && state.nameDraft.trim() !== st.name;
     const leadTitle = (m) => m === 0 ? "сразу" : (me.lead_options.find((o) => o.minutes === m) || {}).title;
-    if (state.notice) { // всплывающее подтверждение внизу экрана, само исчезает
-      clearTimeout(toastTimer);
-      const shown = state.notice;
-      toastTimer = setTimeout(() => {
-        if (state.notice === shown) { state.notice = ""; if (state.tab === "settings") renderKeepFocus(); }
-      }, 2500);
-    }
     return [
-      state.notice ? h("div", { class: "toast" }, state.notice) : null,
+      toast(),
       state.error ? h("div", { class: "error" }, state.error) : null,
 
       h("div", { class: "card" },
@@ -789,6 +796,174 @@
     renderKeepFocus();
   }
 
+  // ---------- услуги ----------
+  const DURATIONS = [10, 15, 20, 30, 40, 45, 50, 60, 75, 90, 105, 120, 150, 180, 210, 240, 300, 360, 420, 480];
+
+  async function loadServices() {
+    try {
+      state.svcList = await api("/cabinet/services?include_hidden=true");
+    } catch (e) {
+      state.svcList = [];
+      state.error = e.message;
+    }
+    render();
+  }
+
+  function servicesChanged() {
+    state.services = null; // список для ручной записи перечитается
+  }
+
+  function openService(s) {
+    haptic();
+    state.error = "";
+    state.notice = "";
+    state.svcEdit = s
+      ? { id: s.id, name: s.name, duration: s.duration_min, price: s.price === null ? "" : String(s.price),
+          active: s.is_active, confirmDelete: false }
+      : { id: null, name: "", duration: 60, price: "", active: true, confirmDelete: false };
+    setBack(closeService);
+    render();
+    window.scrollTo(0, 0);
+    if (!s) setTimeout(() => { const el = document.getElementById("sname"); if (el) el.focus(); }, 50);
+  }
+
+  function closeService() {
+    state.svcEdit = null;
+    state.error = "";
+    setBack(null);
+    render();
+  }
+
+  async function saveService() {
+    const f = state.svcEdit;
+    const name = f.name.trim().replace(/\s+/g, " ");
+    const priceRaw = f.price.replace(/\s/g, "");
+    state.error = name.length < 2 ? "Введите название услуги"
+      : priceRaw && !/^\d+$/.test(priceRaw) ? "Цена — целое число рублей или пусто"
+      : "";
+    if (state.error) { haptic("error"); render(); return; }
+    const body = { name, duration_min: Number(f.duration), price: priceRaw ? Number(priceRaw) : null };
+    if (f.id) body.is_active = f.active;
+    state.saving = true;
+    render();
+    try {
+      await api(f.id ? `/cabinet/services/${f.id}` : "/cabinet/services",
+        { method: f.id ? "PATCH" : "POST", body: JSON.stringify(body) });
+      haptic("success");
+      state.notice = f.id ? "Услуга сохранена" : `Добавили «${name}»`;
+      servicesChanged();
+      state.saving = false;
+      state.svcEdit = null;
+      setBack(null);
+      await loadServices();
+    } catch (e) {
+      state.saving = false;
+      state.error = e.message;
+      haptic("error");
+      render();
+    }
+  }
+
+  async function deleteService() {
+    const f = state.svcEdit;
+    if (!f.confirmDelete) { f.confirmDelete = true; haptic("error"); render(); return; }
+    try {
+      await api(`/cabinet/services/${f.id}`, { method: "DELETE" });
+      haptic("success");
+      state.notice = `Услуга «${f.name.trim()}» удалена`;
+      servicesChanged();
+      state.svcEdit = null;
+      setBack(null);
+      await loadServices();
+    } catch (e) {
+      state.error = e.message;
+      render();
+    }
+  }
+
+  async function moveService(idx, dir) {
+    const list = state.svcList.slice();
+    const j = idx + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[idx], list[j]] = [list[j], list[idx]];
+    state.svcList = list; // сразу показываем новый порядок
+    haptic("select");
+    render();
+    try {
+      state.svcList = await api("/cabinet/services/order",
+        { method: "PUT", body: JSON.stringify({ ids: list.map((s) => s.id) }) });
+      servicesChanged();
+    } catch (e) {
+      state.error = e.message;
+      await loadServices();
+      return;
+    }
+    render();
+  }
+
+  function viewServices() {
+    if (state.svcEdit) return viewServiceForm();
+    if (state.svcList === null) return [h("div", { class: "center muted" }, "Загрузка…")];
+    const list = state.svcList;
+    const visible = list.filter((s) => s.is_active).length;
+    return [
+      toast(),
+      state.error ? h("div", { class: "error" }, state.error) : null,
+      !list.length ? h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Услуг пока нет"),
+        h("div", { class: "set-hint" }, "Добавьте хотя бы одну — без услуг клиенты не смогут записаться.")) : null,
+      list.length && !visible ? h("div", { class: "notice" },
+        "Все услуги скрыты — клиенты сейчас не могут записаться.") : null,
+      h("div", { class: "list" }, list.map((s, i) =>
+        h("div", { class: "card svc" + (s.is_active ? "" : " hidden") },
+          h("button", { class: "svc-main", onclick: () => openService(s) },
+            h("div", { class: "title" }, s.name, s.is_active ? null : h("span", { class: "badge muted-badge" }, "скрыта")),
+            h("div", { class: "meta" }, `${duration(s.duration_min)} · ${price(s.price)}`)),
+          list.length > 1 ? h("div", { class: "svc-move" },
+            h("button", { class: "icon-btn", "aria-label": "Выше", disabled: i === 0, onclick: () => moveService(i, -1) }, "↑"),
+            h("button", { class: "icon-btn", "aria-label": "Ниже", disabled: i === list.length - 1,
+              onclick: () => moveService(i, 1) }, "↓")) : null))),
+      h("button", { class: "btn", onclick: () => openService(null) }, "+ Добавить услугу"),
+      list.length ? h("div", { class: "set-hint center-hint" },
+        "Нажмите на услугу, чтобы изменить. Стрелками — порядок, в котором её видят клиенты.") : null,
+    ];
+  }
+
+  function viewServiceForm() {
+    const f = state.svcEdit;
+    const durations = DURATIONS.includes(Number(f.duration))
+      ? DURATIONS : DURATIONS.concat([Number(f.duration)]).sort((a, b) => a - b);
+    return [
+      h("h2", null, f.id ? "Услуга" : "Новая услуга"),
+      h("label", { for: "sname" }, "Название"),
+      h("input", { id: "sname", value: f.name, maxlength: "120", placeholder: "Например, маникюр с покрытием",
+        oninput: (e) => { f.name = e.target.value; } }),
+      h("label", { for: "sdur" }, "Длительность"),
+      h("select", { id: "sdur", class: "select", onchange: (e) => { f.duration = Number(e.target.value); } },
+        durations.map((m) => h("option", { value: m, selected: m === Number(f.duration) }, duration(m)))),
+      h("div", { class: "set-hint" }, "Столько времени займёт клиент в расписании."),
+      h("label", { for: "sprice" }, "Цена, ₽"),
+      h("input", { id: "sprice", type: "text", inputmode: "numeric", value: f.price, placeholder: "по договорённости",
+        oninput: (e) => { f.price = e.target.value; } }),
+      h("div", { class: "set-hint" }, "Оставьте пустым — клиент увидит «по договорённости»."),
+      f.id ? h("div", { class: "card", style: "margin-top:14px" },
+        h("div", { class: "row-between" },
+          h("div", null,
+            h("div", { class: "set-title", style: "margin-top:0" }, "Показывать клиентам"),
+            h("div", { class: "set-hint" }, "Скрытая услуга остаётся у вас, но записаться на неё нельзя.")),
+          h("label", { class: "switch" },
+            h("input", { type: "checkbox", checked: f.active, onchange: (e) => { f.active = e.target.checked; } }),
+            h("span", { class: "slider" })))) : null,
+      state.error ? h("div", { class: "error" }, state.error) : null,
+      h("button", { class: "btn", onclick: saveService, disabled: state.saving },
+        state.saving ? "Сохраняем…" : f.id ? "Сохранить" : "Добавить услугу"),
+      f.id ? h("button", { class: "btn secondary danger", onclick: deleteService },
+        f.confirmDelete ? "Точно удалить? Нажмите ещё раз" : "Удалить услугу") : null,
+      f.id && f.confirmDelete ? h("div", { class: "set-hint" },
+        "Уже сделанные записи на эту услугу останутся. Если услуга ещё понадобится — лучше скройте её.") : null,
+    ];
+  }
+
   // ---------- каркас ----------
   function header() {
     const me = state.me;
@@ -803,8 +978,8 @@
           h("h1", null, "Кабинет"),
           h("div", { class: "sub" }, me.name))),
       h("div", { class: "tabs" },
-        tab("appointments", "Записи"), tab("schedule", "График"), tab("days", "Выходные"),
-        tab("settings", "Настройки")),
+        tab("appointments", "Записи"), tab("services", "Услуги"), tab("schedule", "График"),
+        tab("days", "Выходные"), tab("settings", "Настройки")),
     ];
   }
 
@@ -825,6 +1000,7 @@
     setBack(null);
     if (id === "appointments") loadAppointments();
     if (id === "days") loadCalendar();
+    if (id === "services") { state.svcEdit = null; state.svcList = null; loadServices(); }
     render();
     window.scrollTo(0, 0);
   }
@@ -833,6 +1009,7 @@
     const body = state.tab === "schedule" ? viewSchedule()
       : state.tab === "days" ? viewCalendar()
       : state.tab === "settings" ? viewSettings()
+      : state.tab === "services" ? viewServices()
       : state.view === "new" ? viewNew() : viewAppointments();
     app.replaceChildren(...[header(), body].flat(Infinity).filter(Boolean));
     if (state.tab === "schedule") state.notice = state.notice && !dirty() ? state.notice : "";

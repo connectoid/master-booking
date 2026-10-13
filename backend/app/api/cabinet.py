@@ -266,11 +266,69 @@ class CabinetAppointment(BaseModel):
     client: ClientOut
 
 
-class ServiceBrief(BaseModel):
+class ServiceOut(BaseModel):
     id: int
     name: str
     duration_min: int
     price: int | None
+    is_active: bool
+
+
+def _service_out(s) -> ServiceOut:
+    return ServiceOut(id=s.id, name=s.name, duration_min=s.duration_min, price=s.price,
+                      is_active=s.is_active)
+
+
+def _clean_service_name(v: str | None) -> str | None:
+    if v is None:
+        return v
+    v = " ".join(v.split())
+    if len(v) < 2:
+        raise ValueError("Название — хотя бы 2 символа")
+    return v
+
+
+def _check_duration(v: int | None) -> int | None:
+    if v is not None and v % 5:
+        raise ValueError("Длительность — кратно 5 минутам")
+    return v
+
+
+class ServiceIn(BaseModel):
+    name: str = Field(max_length=120)
+    duration_min: int = Field(ge=5, le=720)
+    price: int | None = Field(default=None, ge=0, le=1_000_000)
+
+    @field_validator("name")
+    @classmethod
+    def _v_name(cls, v):
+        return _clean_service_name(v)
+
+    @field_validator("duration_min")
+    @classmethod
+    def _v_duration(cls, v):
+        return _check_duration(v)
+
+
+class ServicePatch(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    duration_min: int | None = Field(default=None, ge=5, le=720)
+    price: int | None = Field(default=None, ge=0, le=1_000_000)  # null = «по договорённости»
+    is_active: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _v_name(cls, v):
+        return _clean_service_name(v)
+
+    @field_validator("duration_min")
+    @classmethod
+    def _v_duration(cls, v):
+        return _check_duration(v)
+
+
+class ServiceOrder(BaseModel):
+    ids: list[int] = Field(max_length=100)
 
 
 class ManualCreate(BaseModel):
@@ -324,12 +382,55 @@ async def list_appointments(
     return [_appt_out(a, c, tz) for a, c in rows]
 
 
-@router.get("/services", response_model=list[ServiceBrief])
-async def list_services(master: CurrentMaster, session: Session):
-    return [
-        ServiceBrief(id=s.id, name=s.name, duration_min=s.duration_min, price=s.price)
-        for s in await booking.list_services(session, master.id)
-    ]
+@router.get("/services", response_model=list[ServiceOut])
+async def list_services(master: CurrentMaster, session: Session, include_hidden: bool = False):
+    """Без include_hidden — только услуги, на которые можно записать (для ручной записи)."""
+    if include_hidden:
+        services = await ms.all_services(session, master.id)
+    else:
+        services = await booking.list_services(session, master.id)
+    return [_service_out(s) for s in services]
+
+
+@router.post("/services", response_model=ServiceOut, status_code=201)
+async def create_service(body: ServiceIn, master: CurrentMaster, session: Session):
+    if len(await ms.all_services(session, master.id)) >= ms.MAX_SERVICES:
+        raise HTTPException(422, f"Не больше {ms.MAX_SERVICES} услуг")
+    service = await ms.create_service(session, master, name=body.name,
+                                      duration_min=body.duration_min, price=body.price)
+    await session.commit()
+    return _service_out(service)
+
+
+@router.patch("/services/{service_id}", response_model=ServiceOut)
+async def patch_service(service_id: int, body: ServicePatch, master: CurrentMaster, session: Session):
+    service = await ms.own_service(session, master, service_id)
+    if service is None:
+        raise HTTPException(404, "Услуга не найдена")
+    fields = body.model_dump(exclude_unset=True)
+    for key in ("name", "duration_min", "is_active"):
+        if key in fields and fields[key] is None:
+            raise HTTPException(422, "Пустое значение")
+    ms.update_service(service, **fields)
+    await session.commit()
+    return _service_out(service)
+
+
+@router.delete("/services/{service_id}", status_code=204)
+async def delete_service(service_id: int, master: CurrentMaster, session: Session):
+    if not await ms.delete_service(session, master, service_id):
+        raise HTTPException(404, "Услуга не найдена")
+    await session.commit()
+
+
+@router.put("/services/order", response_model=list[ServiceOut])
+async def reorder_services(body: ServiceOrder, master: CurrentMaster, session: Session):
+    try:
+        services = await ms.reorder_services(session, master, body.ids)
+    except ValueError as err:
+        raise HTTPException(409, str(err)) from err
+    await session.commit()
+    return [_service_out(s) for s in services]
 
 
 @router.get("/free-slots", response_model=list[dt.datetime])

@@ -287,3 +287,57 @@ async def test_master_cancel_notifies_client(cab):
 async def test_appointments_window_limit(cab):
     assert (await cab.get("/api/cabinet/appointments", headers=M, params={"days": 92})).status_code == 200
     assert (await cab.get("/api/cabinet/appointments", headers=M, params={"days": 93})).status_code == 422
+
+
+async def test_services_crud(cab):
+    url = "/api/cabinet/services"
+    r = await cab.post(url, headers=M, json={"name": "  Педикюр  с покрытием ", "duration_min": 90,
+                                              "price": 2000})
+    assert r.status_code == 201, r.text
+    ped = r.json()
+    assert ped == {"id": ped["id"], "name": "Педикюр с покрытием", "duration_min": 90,
+                   "price": 2000, "is_active": True}
+    r = await cab.post(url, headers=M, json={"name": "Дизайн", "duration_min": 30})
+    assert r.status_code == 201 and r.json()["price"] is None  # по договорённости
+    design = r.json()
+
+    for bad in ({"name": "а", "duration_min": 60}, {"name": "Стрижка", "duration_min": 62},
+                {"name": "Стрижка", "duration_min": 0}, {"name": "Стрижка", "duration_min": 60, "price": -1}):
+        assert (await cab.post(url, headers=M, json=bad)).status_code == 422
+
+    # правка: цена → «по договорённости», длительность, скрытие
+    r = await cab.patch(f"{url}/{ped['id']}", headers=M, json={"price": None, "duration_min": 120})
+    assert r.status_code == 200 and r.json()["price"] is None and r.json()["duration_min"] == 120
+    r = await cab.patch(f"{url}/{design['id']}", headers=M, json={"is_active": False})
+    assert r.json()["is_active"] is False
+    assert (await cab.patch(f"{url}/{design['id']}", headers=M, json={"name": None})).status_code == 422
+
+    # скрытая не видна клиентам и в ручной записи, но видна в списке кабинета
+    public = (await cab.get("/api/masters/anna_nails")).json()
+    assert [s["name"] for s in public["services"]] == ["Маникюр", "Педикюр с покрытием"]
+    assert [s["name"] for s in (await cab.get(url, headers=M)).json()] == ["Маникюр", "Педикюр с покрытием"]
+    full = (await cab.get(url, headers=M, params={"include_hidden": True})).json()
+    assert [(s["name"], s["is_active"]) for s in full] == [
+        ("Маникюр", True), ("Педикюр с покрытием", True), ("Дизайн", False)]
+
+    # порядок
+    ids = [design["id"], ped["id"], 1]
+    r = await cab.put(f"{url}/order", headers=M, json={"ids": ids})
+    assert r.status_code == 200 and [s["id"] for s in r.json()] == ids
+    assert (await cab.put(f"{url}/order", headers=M, json={"ids": [1, ped["id"]]})).status_code == 409
+    public = (await cab.get("/api/masters/anna_nails")).json()
+    assert [s["name"] for s in public["services"]] == ["Педикюр с покрытием", "Маникюр"]
+
+    # чужой мастер не трогает
+    assert (await cab.patch(f"{url}/1", headers=auth(user_id=111), json={"price": 1})).status_code == 403
+
+
+async def test_delete_service_keeps_appointments(cab):
+    booked = await _book_as_client(cab)
+    r = await cab.delete("/api/cabinet/services/1", headers=M)
+    assert r.status_code == 204
+    assert (await cab.delete("/api/cabinet/services/1", headers=M)).status_code == 404
+    me = (await cab.get("/api/cabinet/me", headers=M)).json()
+    items = (await cab.get("/api/cabinet/appointments", headers=M,
+                           params={"date_from": me["today"], "days": 14})).json()
+    assert [(a["id"], a["service_name"]) for a in items] == [(booked["id"], "Маникюр")]

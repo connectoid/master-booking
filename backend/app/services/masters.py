@@ -108,15 +108,57 @@ async def add_services(
     return created
 
 
-async def deactivate_service(session: AsyncSession, master: Master, service_id: int) -> bool:
-    service = await session.scalar(
+MAX_SERVICES = 50
+
+
+async def all_services(session: AsyncSession, master_id: int) -> list[Service]:
+    """Все услуги мастера, включая скрытые — для кабинета."""
+    return list(await session.scalars(
+        select(Service).where(Service.master_id == master_id).order_by(Service.position, Service.id)
+    ))
+
+
+async def own_service(session: AsyncSession, master: Master, service_id: int) -> Service | None:
+    return await session.scalar(
         select(Service).where(Service.id == service_id, Service.master_id == master.id)
     )
-    if service is None or not service.is_active:
+
+
+async def create_service(
+    session: AsyncSession, master: Master, *, name: str, duration_min: int, price: int | None
+) -> Service:
+    created = await add_services(session, master, [ParsedService(name, duration_min, price)])
+    return created[0]
+
+
+def update_service(service: Service, **fields) -> None:
+    allowed = {"name", "duration_min", "price", "is_active"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"Нельзя менять: {', '.join(sorted(unknown))}")
+    for key, value in fields.items():
+        setattr(service, key, value)
+
+
+async def delete_service(session: AsyncSession, master: Master, service_id: int) -> bool:
+    """Удаляет услугу. Записи остаются: в них снимок названия и цены, service_id станет NULL."""
+    service = await own_service(session, master, service_id)
+    if service is None:
         return False
-    service.is_active = False  # не удаляем: на услугу могут ссылаться записи
+    await session.delete(service)
     await session.flush()
     return True
+
+
+async def reorder_services(session: AsyncSession, master: Master, ids: list[int]) -> list[Service]:
+    services = await all_services(session, master.id)
+    by_id = {s.id: s for s in services}
+    if sorted(ids) != sorted(by_id):
+        raise ValueError("Список услуг устарел — обновите экран")
+    for pos, sid in enumerate(ids, start=1):
+        by_id[sid].position = pos
+    await session.flush()
+    return [by_id[i] for i in ids]
 
 
 async def get_weekly_schedule(session: AsyncSession, master_id: int) -> Weekly:
