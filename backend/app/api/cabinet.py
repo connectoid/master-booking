@@ -296,7 +296,7 @@ async def list_appointments(
     master: CurrentMaster,
     session: Session,
     date_from: dt.date | None = None,
-    days: Annotated[int, Query(ge=1, le=62)] = 14,
+    days: Annotated[int, Query(ge=1, le=92)] = 14,
 ):
     tz = ZoneInfo(master.timezone)
     start_day = date_from or _today(master)

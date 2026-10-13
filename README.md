@@ -77,4 +77,4 @@ TEST_DATABASE_URL=postgresql+psycopg://booking:booking@localhost:5432/booking_te
 API: `/api/cabinet/me`, `PUT /api/cabinet/schedule`, `PATCH /api/cabinet/settings`,
 `GET|PUT|DELETE /api/cabinet/overrides`, записи: `GET|POST /api/cabinet/appointments`,
 `POST /api/cabinet/appointments/{id}/cancel`, `GET /api/cabinet/free-slots`, `/services`, `/clients`.
-В интерфейсе: вкладка «Записи» (14 дней, ручная запись, отмена) и «График» (недельный).
+В интерфейсе: «Записи» (14 дней, ручная запись, отмена), «График» (недельный) и «Выходные» (календарь особых дней).

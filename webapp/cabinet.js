@@ -9,7 +9,8 @@
   const app = document.getElementById("app");
 
   const state = {
-    tab: "appointments", // appointments | schedule
+    tab: "appointments", // appointments | schedule | days
+    cal: null,           // календарь особых дней: {month, overrides, counts, selected, range, mode, ...}
     view: "list",        // list | new (внутри вкладки «Записи»)
     appts: null,         // записи на 14 дней
     day: null,           // выбранный день (YYYY-MM-DD)
@@ -399,6 +400,279 @@
     return out;
   }
 
+  // ---------- особые дни: календарь ----------
+  const WD_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+  const MONTH_NAMES = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август",
+    "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+  const MAX_MONTHS_AHEAD = 3;
+
+  const weekdayOf = (iso) => { // 0 — понедельник
+    const [y, m, d] = iso.split("-").map(Number);
+    return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+  };
+  const monthKey = (iso) => iso.slice(0, 7);
+  function shiftMonth(key, n) {
+    const [y, m] = key.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + n, 1));
+    return d.toISOString().slice(0, 7);
+  }
+  const fmtIv = (iv) => `${iv.start.slice(0, 5)}–${iv.end.slice(0, 5)}`;
+
+  async function loadCalendar() {
+    const c = state.cal || (state.cal = {
+      month: monthKey(state.me.today), overrides: {}, counts: {}, selected: new Set(),
+      rangeMode: false, rangeStart: null, hoursMode: false, hours: [{ start: "10:00", end: "16:00" }],
+      saving: false, loaded: false,
+    });
+    try {
+      const [ov, appts] = await Promise.all([
+        api("/cabinet/overrides"),
+        api(`/cabinet/appointments?date_from=${state.me.today}&days=92`),
+      ]);
+      c.overrides = Object.fromEntries(ov.map((o) => [o.date, o.intervals]));
+      c.counts = {};
+      for (const a of appts) {
+        const d = a.starts_at.slice(0, 10);
+        c.counts[d] = (c.counts[d] || 0) + 1;
+      }
+      c.loaded = true;
+    } catch (e) {
+      state.error = e.message;
+    }
+    render();
+  }
+
+  function dayKind(iso) {
+    const c = state.cal;
+    if (iso in c.overrides) return c.overrides[iso].length ? "hours" : "off";
+    const weekly = state.week[weekdayOf(iso)];
+    return weekly && weekly.intervals.length ? "work" : "weekly-off";
+  }
+
+  function tapDay(iso) {
+    const c = state.cal;
+    haptic("select");
+    if (c.rangeMode) {
+      if (!c.rangeStart) {
+        c.rangeStart = iso;
+        c.selected = new Set([iso]);
+      } else {
+        let [a, b] = [c.rangeStart, iso].sort();
+        c.selected = new Set();
+        for (let d = a; d <= b; d = addDays(d, 1)) c.selected.add(d);
+        c.rangeStart = null;
+      }
+    } else if (c.selected.has(iso)) c.selected.delete(iso);
+    else c.selected.add(iso);
+    c.hoursMode = false;
+    state.notice = "";
+    state.error = "";
+    render();
+  }
+
+  function clearSelection() {
+    const c = state.cal;
+    c.selected = new Set();
+    c.rangeStart = null;
+    c.hoursMode = false;
+    render();
+  }
+
+  // подряд идущие даты → [[начало, конец], …]
+  function contiguous(dates) {
+    const sorted = [...dates].sort();
+    const out = [];
+    for (const d of sorted) {
+      const last = out[out.length - 1];
+      if (last && addDays(last[1], 1) === d) last[1] = d;
+      else out.push([d, d]);
+    }
+    return out;
+  }
+
+  function conflictText(list) {
+    if (!list.length) return "";
+    const lines = list.slice(0, 8).map((a) =>
+      `${dayLabel(a.starts_at)} ${timeOf(a.starts_at)} — ${a.client_name}${a.phone ? ", " + a.phone : ""}`);
+    return " На эти дни уже есть записи — они сохранены, договоритесь с клиентами: " + lines.join("; ")
+      + (list.length > 8 ? ` и ещё ${list.length - 8}` : "") + ".";
+  }
+
+  async function applyOverride(intervals) {
+    const c = state.cal;
+    if (c.saving || !c.selected.size) return;
+    for (const iv of intervals) {
+      if (toMin(iv.start) >= toMin(iv.end)) {
+        state.error = "Начало должно быть раньше конца";
+        haptic("error"); render(); return;
+      }
+    }
+    c.saving = true;
+    render();
+    try {
+      const conflicts = await api("/cabinet/overrides", {
+        method: "PUT",
+        body: JSON.stringify({ dates: [...c.selected], intervals }),
+      });
+      const n = c.selected.size;
+      state.notice = (intervals.length ? `Другие часы на ${n} дн. сохранены.` : `Выходные на ${n} дн. сохранены.`)
+        + conflictText(conflicts);
+      haptic("success");
+      c.selected = new Set();
+      c.hoursMode = false;
+      await loadCalendar();
+    } catch (e) {
+      state.error = e.message;
+      haptic("error");
+    }
+    c.saving = false;
+    render();
+  }
+
+  async function resetToNormal(dates) {
+    const c = state.cal;
+    if (c.saving) return;
+    c.saving = true;
+    render();
+    try {
+      for (const [a, b] of contiguous(dates)) {
+        await api(`/cabinet/overrides?start=${a}&end=${b}`, { method: "DELETE" });
+      }
+      state.notice = "Эти дни снова работают по обычному графику.";
+      haptic("success");
+      c.selected = new Set();
+      await loadCalendar();
+    } catch (e) {
+      state.error = e.message;
+    }
+    c.saving = false;
+    render();
+  }
+
+  function monthGrid() {
+    const c = state.cal;
+    const first = c.month + "-01";
+    const cells = [];
+    for (let i = 0; i < weekdayOf(first); i++) cells.push(h("div", { class: "cal-cell empty" }));
+    for (let d = first; monthKey(d) === c.month; d = addDays(d, 1)) {
+      const past = d < state.me.today;
+      const kind = dayKind(d);
+      const cls = ["cal-cell", "k-" + kind];
+      if (past) cls.push("past");
+      if (d === state.me.today) cls.push("today");
+      if (c.selected.has(d)) cls.push("sel");
+      if (c.rangeStart === d) cls.push("range-start");
+      const n = c.counts[d] || 0;
+      cells.push(h("button", {
+        class: cls.join(" "), disabled: past, onclick: () => tapDay(d),
+        title: kind === "hours" ? c.overrides[d].map(fmtIv).join(", ") : null,
+      },
+      h("span", { class: "num" }, Number(d.slice(8))),
+      kind === "hours" ? h("span", { class: "tag" }, c.overrides[d][0].start.slice(0, 5)) : null,
+      n ? h("span", { class: "dot" }, n) : null));
+    }
+    return h("div", { class: "cal-grid" },
+      WD_SHORT.map((w) => h("div", { class: "cal-wd" }, w)), cells);
+  }
+
+  function specialList() {
+    const c = state.cal;
+    const dates = Object.keys(c.overrides).sort();
+    if (!dates.length) return h("p", { class: "muted small" }, "Особых дней пока нет.");
+    // склеиваем подряд идущие дни с одинаковыми часами
+    const groups = [];
+    for (const d of dates) {
+      const sig = JSON.stringify(c.overrides[d]);
+      const last = groups[groups.length - 1];
+      if (last && last.sig === sig && addDays(last.end, 1) === d) last.end = d;
+      else groups.push({ start: d, end: d, sig, iv: c.overrides[d] });
+    }
+    return h("div", { class: "list" }, groups.map((g) => {
+      const p1 = dateParts(g.start); const p2 = dateParts(g.end);
+      const period = g.start === g.end ? `${p1.day} ${p1.month}`
+        : `${p1.day} ${p1.month} – ${p2.day} ${p2.month}`;
+      const dates = []; for (let d = g.start; d <= g.end; d = addDays(d, 1)) dates.push(d);
+      return h("div", { class: "card special" },
+        h("div", { class: "grow" },
+          h("div", { class: "title" }, period),
+          h("div", { class: "meta" }, g.iv.length ? g.iv.map(fmtIv).join(", ") : "выходной")),
+        h("button", { class: "icon-btn", title: "Вернуть обычный график",
+          onclick: () => resetToNormal(dates) }, "×"));
+    }));
+  }
+
+  function selectionBar() {
+    const c = state.cal;
+    if (!c.selected.size) return null;
+    const n = c.selected.size;
+    const hasSpecial = [...c.selected].some((d) => d in c.overrides);
+    const head = h("div", { class: "row-between" },
+      h("b", null, `Выбрано: ${n} ${n === 1 ? "день" : n < 5 ? "дня" : "дней"}`),
+      h("button", { class: "link-btn", onclick: clearSelection }, "Сбросить"));
+    if (c.hoursMode) {
+      return h("div", { class: "save-bar sel-bar" }, head,
+        c.hours.map((iv, idx) => h("div", { class: "interval" },
+          timeInput(iv.start, (v) => { iv.start = v; }), h("span", { class: "dash" }, "—"),
+          timeInput(iv.end, (v) => { iv.end = v; }),
+          c.hours.length > 1
+            ? h("button", { class: "icon-btn", onclick: () => { c.hours.splice(idx, 1); render(); } }, "×")
+            : h("span", { class: "icon-btn placeholder" }))),
+        c.hours.length < 3 ? h("button", { class: "link-btn", onclick: () => {
+          const last = c.hours[c.hours.length - 1];
+          const st = Math.min(toMin(last.end) + 60, 22 * 60);
+          c.hours.push({ start: toTime(st), end: toTime(Math.min(st + 120, 23 * 60 + 59)) }); render();
+        } }, "+ перерыв") : null,
+        h("div", { class: "row" },
+          h("button", { class: "btn secondary", onclick: () => { c.hoursMode = false; render(); } }, "Назад"),
+          h("button", { class: "btn", disabled: c.saving, onclick: () => applyOverride(c.hours) },
+            c.saving ? "Сохраняем…" : "Сохранить часы")));
+    }
+    return h("div", { class: "save-bar sel-bar" }, head,
+      h("div", { class: "row" },
+        h("button", { class: "btn", disabled: c.saving, onclick: () => applyOverride([]) }, "Выходной"),
+        h("button", { class: "btn secondary", onclick: () => { c.hoursMode = true; render(); } }, "Другие часы")),
+      hasSpecial ? h("button", { class: "btn secondary", disabled: c.saving,
+        onclick: () => resetToNormal(c.selected) }, "Как обычно (по графику)") : null);
+  }
+
+  function viewCalendar() {
+    const c = state.cal;
+    if (!c || !c.loaded) return [h("div", { class: "center muted" }, "Загрузка…")];
+    const minMonth = monthKey(state.me.today);
+    const maxMonth = shiftMonth(minMonth, MAX_MONTHS_AHEAD);
+    const [y, m] = c.month.split("-").map(Number);
+    return [
+      h("p", { class: "small muted" },
+        "Нажмите на дни, чтобы сделать их выходными или задать другие часы. "
+        + "Для отпуска включите «Период» и отметьте первый и последний день."),
+      state.notice ? h("div", { class: "notice" }, state.notice) : null,
+      state.error ? h("div", { class: "error" }, state.error) : null,
+      h("div", { class: "cal-head" },
+        h("button", { class: "icon-btn", disabled: c.month <= minMonth,
+          onclick: () => { c.month = shiftMonth(c.month, -1); render(); } }, "‹"),
+        h("div", { class: "cal-title" }, `${MONTH_NAMES[m - 1]} ${y}`),
+        h("button", { class: "icon-btn", disabled: c.month >= maxMonth,
+          onclick: () => { c.month = shiftMonth(c.month, 1); render(); } }, "›")),
+      h("div", { class: "row-between" },
+        h("label", { class: "switch" },
+          h("input", { type: "checkbox", checked: c.rangeMode,
+            onchange: () => { c.rangeMode = !c.rangeMode; c.rangeStart = null; render(); } }),
+          h("span", { class: "slider" }),
+          h("span", { class: "switch-text" },
+            c.rangeMode ? (c.rangeStart ? "теперь последний день" : "период: первый день") : "Период")),
+        c.selected.size ? null : h("span", { class: "small muted" }, "")),
+      monthGrid(),
+      h("div", { class: "legend" },
+        h("span", null, h("i", { class: "lg k-off" }), "выходной"),
+        h("span", null, h("i", { class: "lg k-hours" }), "другие часы"),
+        h("span", null, h("i", { class: "lg k-weekly-off" }), "выходной по графику"),
+        h("span", null, h("i", { class: "lg dotlg" }), "записи")),
+      h("h2", null, "Особые дни"),
+      specialList(),
+      selectionBar(),
+    ];
+  }
+
   // ---------- каркас ----------
   function header() {
     const me = state.me;
@@ -412,7 +686,8 @@
         h("div", { class: "grow" },
           h("h1", null, "Кабинет"),
           h("div", { class: "sub" }, me.name))),
-      h("div", { class: "tabs" }, tab("appointments", "Записи"), tab("schedule", "График")),
+      h("div", { class: "tabs" },
+        tab("appointments", "Записи"), tab("schedule", "График"), tab("days", "Выходные")),
     ];
   }
 
@@ -431,12 +706,14 @@
     state.notice = "";
     setBack(null);
     if (id === "appointments") loadAppointments();
+    if (id === "days") loadCalendar();
     render();
     window.scrollTo(0, 0);
   }
 
   function render() {
     const body = state.tab === "schedule" ? viewSchedule()
+      : state.tab === "days" ? viewCalendar()
       : state.view === "new" ? viewNew() : viewAppointments();
     app.replaceChildren(...[header(), body].flat(Infinity).filter(Boolean));
     if (state.tab === "schedule") state.notice = state.notice && !dirty() ? state.notice : "";

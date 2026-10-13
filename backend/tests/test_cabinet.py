@@ -255,3 +255,8 @@ async def test_master_cancel_notifies_client(cab):
         runtime.reset()
     items = (await cab.get("/api/cabinet/appointments", headers=M)).json()
     assert items == []
+
+
+async def test_appointments_window_limit(cab):
+    assert (await cab.get("/api/cabinet/appointments", headers=M, params={"days": 92})).status_code == 200
+    assert (await cab.get("/api/cabinet/appointments", headers=M, params={"days": 93})).status_code == 422
