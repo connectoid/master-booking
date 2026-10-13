@@ -233,3 +233,17 @@ async def test_booking_requires_valid_auth(ctx, headers):
     r = await client.post("/api/masters/anna_nails/appointments",
                           json={"service_id": 1, "starts_at": slot}, headers=headers)
     assert r.status_code == 401
+
+
+async def test_slots_follow_master_horizon(ctx):
+    client, _ = ctx
+    r = await client.get(
+        "/api/masters/anna_nails/slots",
+        params={"service_id": 1, "date_from": in_days(1).isoformat(), "days": 60},
+    )
+    assert r.status_code == 200
+    days = r.json()["days"]
+    assert len(days) == 30  # горизонт мастера по умолчанию — 30 дней
+    assert days[-1]["date"] == in_days(30).isoformat()
+    master = (await client.get("/api/masters/anna_nails")).json()
+    assert master["horizon_days"] == 30

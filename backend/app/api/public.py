@@ -60,6 +60,7 @@ async def get_master(slug: str, session: Session) -> MasterOut:
         name=master.name,
         timezone=master.timezone,
         one_booking_per_day=master.one_booking_per_day,
+        horizon_days=master.horizon_days,
         services=[
             ServiceOut(id=s.id, name=s.name, duration_min=s.duration_min, price=s.price)
             for s in services

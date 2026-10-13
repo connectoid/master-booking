@@ -166,17 +166,20 @@
     const days = state.slots.days;
     if (days.length === 0) {
       out.push(h("p", { class: "center muted" },
-        "В ближайшие две недели свободного времени нет. Напишите мастеру напрямую."));
+        `В ближайшие ${state.master.horizon_days || 30} дней свободного времени нет. `
+        + "Напишите мастеру напрямую."));
       return out;
     }
     out.push(h("h2", null, "Выберите день"));
-    out.push(h("div", { class: "days" }, days.map((d) => {
+    out.push(h("div", { class: "days" }, days.map((d, i) => {
       const p = dateParts(d.date);
+      const showMonth = i === 0 || dateParts(days[i - 1].date).month !== p.month;
       return h("button", {
         class: "day" + (state.day === d.date ? " active" : ""),
         disabled: state.bookedDays.has(d.date),
         onclick: () => { state.day = d.date; state.slot = null; haptic("select"); render(); },
-      }, h("div", { class: "wd" }, p.wd), h("div", { class: "dn" }, p.day));
+      }, h("div", { class: "mon" }, showMonth ? p.month.slice(0, 3) : "\u00a0"),
+        h("div", { class: "wd" }, p.wd), h("div", { class: "dn" }, p.day));
     })));
     if (state.bookedDays.size) {
       out.push(h("p", { class: "small muted" },
@@ -296,7 +299,9 @@
 
   async function loadSlots() {
     try {
-      state.slots = await api(`/masters/${encodeURIComponent(slug)}/slots?service_id=${state.service.id}&days=14`);
+      const days = Math.min((state.master.horizon_days || 30) + 1, 92);
+      state.slots = await api(
+        `/masters/${encodeURIComponent(slug)}/slots?service_id=${state.service.id}&days=${days}`);
       const first = state.slots.days.find((d) => !state.bookedDays.has(d.date))
         || state.slots.days[0];
       if (!state.day || !state.slots.days.some((d) => d.date === state.day)

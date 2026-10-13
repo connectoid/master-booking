@@ -28,7 +28,7 @@ from app.models import (
     WorkingInterval,
 )
 
-MAX_DAYS_PER_REQUEST = 31
+MAX_DAYS_PER_REQUEST = 92  # максимум горизонта записи (90 дней) + запас
 
 
 class BookingError(Exception):

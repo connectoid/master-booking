@@ -16,6 +16,7 @@ class MasterOut(BaseModel):
     name: str
     timezone: str
     one_booking_per_day: bool = False
+    horizon_days: int = 30
     services: list[ServiceOut]
 
 
