@@ -11,8 +11,19 @@
   const unsafe = (bridge && bridge.initDataUnsafe) || {};
   const query = new URLSearchParams(location.search);
   const startParam = String(unsafe.start_param || "").toLowerCase();
-  // кабинет мастера: ссылка max.ru/<бот>?startapp=cabinet (или ?cabinet для отладки)
-  const mode = startParam === "cabinet" || query.has("cabinet") ? "cabinet" : "client";
+  // короткие адреса веб-версии: okoshko.website/<slug> и okoshko.website/cabinet
+  const path = location.pathname.replace(/\/+$/, "");
+  const pathSlug = /^\/[a-z0-9_]{3,40}$/.test(path) && path !== "/app" && path !== "/cabinet" ? path.slice(1) : "";
+  // кабинет мастера: max.ru/<бот>?startapp=cabinet, /cabinet в браузере (или ?cabinet для отладки)
+  const mode = startParam === "cabinet" || query.has("cabinet") || path === "/cabinet" ? "cabinet" : "client";
+
+  // localStorage может быть недоступен (приватный режим) — тогда просто не помним
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+    set(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) { /* нет */ } },
+  };
+  let authHeader = null; // вход из браузера: «web <токен>» (клиент) или «master <токен>» (кабинет)
+  function setAuth(value) { authHeader = value; }
 
   const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
   const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
@@ -49,6 +60,8 @@
     if (initData) {
       headers["Authorization"] = "tma " + initData;
       headers["X-Channel"] = channel;
+    } else if (authHeader) {
+      headers["Authorization"] = authHeader;
     }
     const r = await fetch("/api" + path, Object.assign({ headers }, opts || {}));
     let data = null;
@@ -66,6 +79,7 @@
 
   // Кнопка «назад» платформы: один обработчик, экран сам решает, что делать
   let backHandler = null;
+  const hasNativeBack = !!(bridge && bridge.BackButton);
   if (bridge && bridge.BackButton) {
     try { bridge.BackButton.onClick(() => backHandler && backHandler()); } catch (_) { /* нет */ }
   }
@@ -144,5 +158,6 @@
     MAX, TG, bridge, channel, initData, unsafe, query, startParam, mode, WD, MONTHS,
     h, haptic, api, setBack, price, duration, timeOf, dateParts, dayLabel, ready,
     requestPhone, canRequestPhone, ensureCanMessage,
+    pathSlug, store, setAuth, hasNativeBack, currentBack: () => backHandler,
   };
 })();

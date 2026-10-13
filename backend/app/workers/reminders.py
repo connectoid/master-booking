@@ -56,13 +56,18 @@ async def process_due(now: dt.datetime | None = None) -> int:
             ):
                 r.status = ReminderStatus.CANCELLED.value
                 continue
-            contact = await session.scalar(
+            # первый контакт, в который можно написать (у записавшихся из браузера
+            # первым идёт контакт web — он без мессенджера)
+            contact, messenger = None, None
+            for c in await session.scalars(
                 select(ClientContact)
                 .where(ClientContact.client_id == appt.client_id)
                 .order_by(ClientContact.id)
-                .limit(1)
-            )
-            messenger = runtime.messengers.get(Channel(contact.channel)) if contact else None
+            ):
+                messenger = runtime.messengers.get(Channel(c.channel))
+                if messenger is not None:
+                    contact = c
+                    break
             if messenger is None:
                 r.status = ReminderStatus.FAILED.value
                 r.last_error = "у клиента нет мессенджера для напоминаний"

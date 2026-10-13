@@ -73,7 +73,8 @@ async def appointment_created(appointment_id: int) -> None:
         when = fmt_when(appt.starts_at, tz)
         await _notify_master(
             session, master,
-            f"Новая запись\n{when}, {appt.service_name}\nКлиент: {_client_label(client)}"
+            f"Новая запись{' (через сайт)' if appt.source == 'web' else ''}\n"
+            f"{when}, {appt.service_name}\nКлиент: {_client_label(client)}"
             + (f"\nКомментарий: {appt.comment}" if appt.comment else ""),
         )
         for contact in await _client_contacts(session, client.id):

@@ -1,16 +1,36 @@
 // Окошко — Mini App записи к мастеру. Работает в MAX (window.WebApp), в Telegram
-// (window.Telegram.WebApp) и в обычном браузере (только просмотр).
+// (window.Telegram.WebApp) и в обычном браузере (okoshko.website/<slug>: запись по имени и телефону).
 (function () {
   "use strict";
 
   const {
     MAX, bridge, channel, unsafe, query, h, haptic, api, setBack,
     price, duration, timeOf, dateParts, dayLabel, ready,
-    requestPhone, canRequestPhone, ensureCanMessage,
+    requestPhone, canRequestPhone, ensureCanMessage, pathSlug, store, setAuth, hasNativeBack, currentBack,
   } = window.OK;
   if (window.OK.mode !== "client") return; // кабинет мастера — в cabinet.js
-  const slug = String(unsafe.start_param || query.get("m") || "").toLowerCase();
+  const slug = String(unsafe.start_param || query.get("m") || pathSlug || "").toLowerCase();
   const tgUser = unsafe.user || {};
+  const web = channel === "web";
+
+  // Браузер: анонимный токен посетителя. Ссылка «…/slug#k=<токен>» переносит записи на другое устройство.
+  let webToken = null;
+  if (web) {
+    const fromHash = /(?:^#|&)k=([0-9a-f]{16}\.[0-9a-f]{32})/.exec(location.hash);
+    if (fromHash) {
+      store.set("okWeb", fromHash[1]);
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (_) { /* нет */ }
+    }
+    webToken = store.get("okWeb");
+    if (webToken) setAuth("web " + webToken);
+  }
+  async function ensureWebToken() {
+    if (!web || webToken) return;
+    webToken = (await api("/web/session", { method: "POST" })).token;
+    store.set("okWeb", webToken);
+    setAuth("web " + webToken);
+  }
+  const canSeeMy = () => !web || !!webToken;
 
   const state = {
     master: null, service: null, slots: null, day: null, slot: null,
@@ -53,9 +73,15 @@
       h("div", { class: "grow" },
         h("h1", null, m.name),
         h("div", { class: "sub" }, "Онлайн-запись")),
-      channel !== "web" && state.view !== "my"
+      canSeeMy() && state.view !== "my"
         ? h("button", { class: "link-btn", onclick: openMy }, "Мои записи") : null,
     );
+  }
+
+  // в браузере нет кнопки «назад» мессенджера — рисуем свою
+  function backLink() {
+    const fn = !hasNativeBack && currentBack();
+    return fn ? h("button", { class: "back-link", onclick: () => fn() }, "← Назад") : null;
   }
 
   function viewServices() {
@@ -137,15 +163,10 @@
       serviceSummary(),
       h("h2", null, `${dayLabel(state.slot)}, ${timeOf(state.slot)}`),
     ];
-    if (channel === "web") {
-      out.push(h("div", { class: "error" },
-        "Записаться можно из мессенджера: откройте ссылку мастера в MAX или Telegram."));
-      return out;
-    }
     out.push(
       h("label", { for: "name" }, "Ваше имя"),
       input("name", { id: "name", autocomplete: "name", maxlength: "120" }),
-      h("label", { for: "phone" }, "Телефон (необязательно)"),
+      h("label", { for: "phone" }, web ? "Телефон" : "Телефон (необязательно)"),
       h("div", { class: "row" },
         input("phone", { id: "phone", type: "tel", autocomplete: "tel", placeholder: "+7…" }),
         canRequestPhone
@@ -157,12 +178,15 @@
       state.error ? h("div", { class: "error" }, state.error) : null,
       h("button", { class: "btn", onclick: submit, disabled: state.sending },
         state.sending ? "Записываем…" : "Записаться"),
+      web ? h("p", { class: "small muted consent" },
+        "Нажимая «Записаться», вы соглашаетесь на обработку имени и телефона мастером для этой записи.") : null,
     );
     return out;
   }
 
   function viewDone() {
     const a = state.appointment;
+    if (web) return viewDoneWeb(a);
     return [
       h("div", { class: "done-icon" }, "✓"),
       h("div", { class: "center", style: "padding:0" },
@@ -174,6 +198,59 @@
           : "Подтверждение и напоминания придут в чат с ботом."))),
       h("button", { class: "btn secondary", onclick: openMy }, "Мои записи"),
       bridge && bridge.close ? h("button", { class: "btn", onclick: () => bridge.close() }, "Готово") : null,
+    ];
+  }
+
+  function myLink() {
+    return `${location.origin}/${slug}#k=${webToken}`;
+  }
+
+  async function copyMyLink() {
+    try {
+      await navigator.clipboard.writeText(myLink());
+      state.copied = true;
+    } catch (_) {
+      state.copied = "manual";
+    }
+    render();
+  }
+
+  async function openRemindLink() {
+    // окно открываем сразу (иначе браузер посчитает его всплывающей рекламой), адрес — после ответа
+    const win = window.open("about:blank", "_blank");
+    try {
+      const { url } = await api("/web/remind-link");
+      if (!url) throw new Error("Бот MAX сейчас недоступен — попробуйте позже.");
+      if (win) win.location.href = url; else location.href = url;
+    } catch (e) {
+      if (win) win.close();
+      state.error = e.message;
+      render();
+    }
+  }
+
+  function viewDoneWeb(a) {
+    return [
+      h("div", { class: "done-icon" }, "✓"),
+      h("div", { class: "center", style: "padding:0" },
+        h("h2", null, "Вы записаны"),
+        h("p", null, `${a.service_name}`),
+        h("p", null, h("b", null, `${dayLabel(a.starts_at)}, ${timeOf(a.starts_at)}`)),
+        h("p", { class: "muted small" }, `Мастер: ${state.master.name}. Если что-то изменится, мастер позвонит.`)),
+      h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Напоминание о записи"),
+        h("div", { class: "set-hint" },
+          "Пришлём напоминание за день и за 2 часа в MAX — там же можно отменить запись."),
+        h("button", { class: "btn", onclick: openRemindLink }, "Получать напоминания в MAX")),
+      h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Ваши записи"),
+        h("div", { class: "set-hint" },
+          "Записи видны в этом браузере в «Мои записи». Чтобы открыть их на другом устройстве, сохраните ссылку:"),
+        state.copied === "manual" ? h("div", { class: "link-box" }, myLink()) : null,
+        h("button", { class: "btn secondary", onclick: copyMyLink },
+          state.copied === true ? "Ссылка скопирована" : "Скопировать ссылку на мои записи")),
+      state.error ? h("div", { class: "error" }, state.error) : null,
+      h("button", { class: "btn secondary", onclick: openMy }, "Мои записи"),
     ];
   }
 
@@ -204,7 +281,7 @@
 
   function render() {
     const views = { services: viewServices, slots: viewSlots, confirm: viewConfirm, done: viewDone, my: viewMy };
-    app.replaceChildren(...[].concat(views[state.view]()).filter(Boolean));
+    app.replaceChildren(...[backLink()].concat(views[state.view]()).filter(Boolean));
   }
 
   function fatal(text) {
@@ -252,11 +329,19 @@
 
   async function submit() {
     if (state.sending) return;
+    if (web && (state.form.name.trim().length < 2 || state.form.phone.replace(/\D/g, "").length < 10)) {
+      state.error = "Укажите имя и телефон — мастер позвонит, если что-то изменится.";
+      haptic("error");
+      render();
+      return;
+    }
     state.sending = true;
     state.error = "";
+    state.copied = false;
     render();
     state.canMessage = await ensureCanMessage();
     try {
+      await ensureWebToken();
       state.appointment = await api(`/masters/${encodeURIComponent(slug)}/appointments`, {
         method: "POST",
         body: JSON.stringify({
@@ -322,7 +407,7 @@
   }
 
   async function loadBookedDays() {
-    if (!state.master.one_booking_per_day || channel === "web") return;
+    if (!state.master.one_booking_per_day || !canSeeMy()) return;
     try {
       const my = await api(`/masters/${encodeURIComponent(slug)}/appointments/my`);
       state.bookedDays = new Set(my.map((a) => a.starts_at.slice(0, 10)));
@@ -334,7 +419,8 @@
   async function start() {
     ready();
     if (!slug) {
-      fatal("Откройте приложение по ссылке мастера.");
+      fatal(web ? "Откройте страницу по ссылке мастера, например okoshko.website/имя_мастера."
+        : "Откройте приложение по ссылке мастера.");
       return;
     }
     try {

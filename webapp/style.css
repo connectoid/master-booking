@@ -307,3 +307,18 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
 .tabs .tab { font-size: 13px; padding: 9px 2px; letter-spacing: -0.1px; }
 .link-label { font-size: 13px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
 .card .set-title + .link-label { margin-top: 0; }
+
+/* веб-версия */
+.back-link { border: 0; background: none; color: var(--accent); font: inherit; font-size: 15px; padding: 0 0 10px; cursor: pointer; }
+.consent { margin-top: 10px; text-align: center; }
+.login { text-align: center; padding: 40px 4px; }
+.login .avatar { margin: 0 auto 12px; }
+.login h1 { font-size: 22px; margin: 0 0 16px; }
+.login .steps { text-align: left; margin: 12px auto 20px; padding-left: 22px; max-width: 420px; line-height: 1.5; }
+.login a.btn { display: block; text-decoration: none; text-align: center; }
+@media (min-width: 900px) {
+  /* браузер на компьютере: шире колонка, крупнее поля */
+  #app { max-width: 720px; padding-top: 32px; }
+  .slots { grid-template-columns: repeat(6, 1fr); }
+  .days { flex-wrap: wrap; overflow: visible; } /* мышью неудобно листать вбок */
+}

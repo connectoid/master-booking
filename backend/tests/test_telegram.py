@@ -53,6 +53,7 @@ def test_links(tg_runtime):
 
     assert [(x.title, x.url) for x in links.share_links("anna")] == [
         ("MAX", "https://max.ru/id123_bot?startapp=anna"),
+        ("Сайт", "https://okoshko.website/anna"),
         ("Telegram", "https://t.me/okoshko_bot?startapp=anna"),
     ]
     b = links.client_app_button(Channel.TELEGRAM, "Выбрать время", "anna")

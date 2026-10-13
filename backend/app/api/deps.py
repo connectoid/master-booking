@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, status
 
 from app.channels.identity import ChannelUser
+from app.channels.web_auth import verify_client_token
 from app.channels.webapp_auth import InitDataError, verify_init_data
 from app.config import Settings, get_settings
 from app.models import Channel
@@ -21,15 +22,21 @@ async def get_channel_user(
     authorization: Annotated[str | None, Header()] = None,
     x_channel: Annotated[str | None, Header()] = None,
 ) -> ChannelUser:
-    """Клиент из Mini App.
+    """Клиент из Mini App или из браузера.
 
-    Заголовки: `X-Channel: max|telegram` и `Authorization: tma <initData>`.
+    Mini App: `X-Channel: max|telegram` и `Authorization: tma <initData>`.
+    Браузер: `Authorization: web <токен клиента>` (см. app.channels.web_auth).
     """
     unauthorized = HTTPException(status.HTTP_401_UNAUTHORIZED, "Требуется вход через мессенджер")
-    if not authorization or not x_channel:
+    if not authorization:
         raise unauthorized
     scheme, _, init_data = authorization.partition(" ")
-    if scheme.lower() != "tma" or not init_data:
+    if scheme.lower() == "web":
+        wid = verify_client_token(settings, init_data.strip())
+        if wid is None:
+            raise unauthorized
+        return ChannelUser(channel=Channel.WEB, external_user_id=wid, display_name="")
+    if scheme.lower() != "tma" or not init_data or not x_channel:
         raise unauthorized
     try:
         channel = Channel(x_channel.lower())
@@ -37,6 +44,8 @@ async def get_channel_user(
         raise unauthorized from None
 
     token = _bot_token(channel, settings)
+    if not token:  # канал не подключён (или web) — подписью initData нечего проверять
+        raise unauthorized
     try:
         hours = settings.initdata_max_age_hours
         max_age = dt.timedelta(hours=hours) if hours > 0 else None

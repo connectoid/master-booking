@@ -27,11 +27,13 @@ from app.bot.parsing import (
 from app.bot.state import clear_state, get_state, set_state
 from app.bot.ui import Button, Event, Keyboard, Messenger
 from app.channels.identity import ChannelUser
-from app.channels import links
+from app.channels import links, web_auth
+from app.config import get_settings
 from app.models import Channel, Master
 from app.notify import appointment_cancelled_by_client
 from app.services import booking
 from app.services import masters as ms
+from app.services import web_clients
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +50,8 @@ MENU: Keyboard = [
     [Button("Записи сегодня", payload="m:today"), Button("На неделю", payload="m:week")],
     [Button("Услуги", payload="m:services"), Button("График", payload="m:schedule")],
     [Button("Выходные и отпуск", payload="m:off"), Button("Настройки", payload="m:settings")],
-    [Button("Ссылка для клиентов", payload="m:link")],
+    [Button("Ссылка для клиентов", payload="m:link"),
+     Button("Кабинет на компьютере", payload="m:weblogin")],
 ]
 
 
@@ -106,7 +109,49 @@ async def handle_event(ctx: Ctx) -> None:
 
 # ---------- клиент ----------
 
+def web_login_url(master: Master) -> str:
+    base = get_settings().public_base_url.rstrip("/")
+    return f"{base}/cabinet?login={web_auth.login_code(get_settings(), master.id)}"
+
+
+async def send_web_login(ctx: Ctx, master: Master) -> None:
+    url = web_login_url(master)
+    await ctx.reply(
+        "Вход в кабинет с компьютера. Откройте ссылку в браузере в течение 10 минут:\n"
+        f"{url}\n\n"
+        "Удобнее всего — открыть MAX на компьютере (приложение или веб-версию) и нажать на ссылку здесь. "
+        "Не пересылайте ссылку другим: по ней открывается ваш кабинет.",
+        [[Button("Открыть кабинет в браузере", url=url)], [Button("Меню", payload="m:menu")]],
+    )
+
+
+async def client_link_web(ctx: Ctx, code: str) -> None:
+    """Клиент записался в браузере и нажал «Напоминания в MAX»."""
+    wid = web_auth.parse_link_code(get_settings(), code)
+    if wid is None:
+        await ctx.reply("Ссылка устарела. Откройте страницу записи в браузере ещё раз "
+                        "и нажмите «Получать напоминания в MAX».")
+        return
+    linked = await web_clients.link_messenger(ctx.session, wid, ctx.user)
+    if not linked:
+        await ctx.reply("Записей из браузера не нашли. Если вы отменили запись — "
+                        "запишитесь снова по ссылке мастера.")
+        return
+    lines = []
+    for master, client in linked:
+        tz = ZoneInfo(master.timezone)
+        for a in await web_clients.upcoming(ctx.session, client):
+            lines.append(f"• {texts.fmt_when(a.starts_at, tz)}, {a.service_name} — {master.name}")
+    text = "Готово! Напоминания о записях придут сюда, отменить запись можно кнопкой в напоминании."
+    if lines:
+        text += "\n\nВаши записи:\n" + "\n".join(lines)
+    await ctx.reply(text)
+
+
 async def client_start(ctx: Ctx, slug: str) -> None:
+    if web_auth.is_link_code(slug):
+        await client_link_web(ctx, slug.strip().lower())
+        return
     master = await ms.get_master_by_slug(ctx.session, slug.lower())
     if master is None:
         await ctx.reply("Мастер по этой ссылке не найден. Проверьте ссылку или спросите мастера.")
@@ -252,6 +297,8 @@ async def master_callback(ctx: Ctx, master: Master, payload: str) -> None:
         await ctx.reply(texts.SCHEDULE_HELP)
     elif payload == "m:link":
         await show_link(ctx, master)
+    elif payload == "m:weblogin":
+        await send_web_login(ctx, master)
     elif payload == "m:off":
         await show_exceptions(ctx, master)
     elif payload == "m:off_add":
@@ -493,7 +540,7 @@ async def show_link(ctx: Ctx, master: Master) -> None:
     if len(found) == 1:
         head = f"Ваша ссылка для записи:\n{found[0].url}"
     else:
-        head = "Ваши ссылки для записи — клиент выберет удобный мессенджер:\n" + "\n".join(
+        head = "Ваши ссылки для записи — клиент выберет, где ему удобнее:\n" + "\n".join(
             f"{x.title}: {x.url}" for x in found)
     await ctx.reply(
         f"{head}\n\n"

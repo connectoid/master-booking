@@ -17,9 +17,10 @@ from app.api.schemas import (
 )
 from app import notify
 from app.db import get_session
-from app.models import Appointment
+from app.models import Appointment, Channel
 from app.runtime import runtime
 from app.services import booking
+from app.services import web_clients
 
 router = APIRouter(prefix="/api", tags=["client"])
 Session = Annotated[AsyncSession, Depends(get_session)]
@@ -105,9 +106,18 @@ async def create_appointment(
     session: Session,
     background: BackgroundTasks,
 ) -> AppointmentOut:
+    if user.channel == Channel.WEB and (not body.client_name or not body.phone):
+        raise HTTPException(422, "Укажите имя и телефон — мастер позвонит, если что-то изменится")
     try:
         master = await booking.get_master(session, slug)
         service = await booking.get_service(session, master, body.service_id)
+        if user.channel == Channel.WEB and (
+            await web_clients.active_bookings(session, master, user.external_user_id)
+            >= web_clients.MAX_ACTIVE_WEB_BOOKINGS
+        ):
+            raise booking.Forbidden(
+                f"Из браузера можно иметь не больше {web_clients.MAX_ACTIVE_WEB_BOOKINGS} записей "
+                "к мастеру. Отмените лишние в «Мои записи» или свяжитесь с мастером.")
         appointment = await booking.create_appointment(
             session, master, service, body.starts_at, user,
             client_name=body.client_name, phone=body.phone, comment=body.comment,

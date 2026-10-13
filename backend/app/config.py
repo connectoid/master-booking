@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str = ""  # 1–256 символов: латиница, цифры, _ и -
     telegram_bot_username: str = ""    # ник бота без @; пусто — спросим у API при старте
 
+    # Веб-версия (браузер): секрет подписи ссылок и сессий. Пусто — выводится из токена бота MAX.
+    web_secret: str = ""
+    web_master_session_days: int = 30
+
     # Фоновая отправка напоминаний
     reminders_enabled: bool = True
     reminders_interval_sec: int = 30

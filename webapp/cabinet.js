@@ -2,7 +2,9 @@
 (function () {
   "use strict";
 
-  const { h, haptic, api, setBack, ready, channel, dateParts, dayLabel, timeOf, duration, price } = window.OK;
+  const { h, haptic, api, setBack, ready, channel, dateParts, dayLabel, timeOf, duration, price,
+    query, store, setAuth, hasNativeBack, currentBack } = window.OK;
+  const web = channel === "web"; // кабинет в браузере: вход по ссылке из бота
   if (window.OK.mode !== "cabinet") return;
 
   const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
@@ -724,6 +726,18 @@
     render();
   }
 
+  async function requestWebLogin() {
+    try {
+      const r = await api("/cabinet/web-login", { method: "POST" });
+      state.webLoginUrl = r.url;
+      state.notice = r.sent ? "Ссылка отправлена в чат с ботом — действует 10 минут" : "Скопируйте ссылку — она действует 10 минут";
+      haptic("success");
+    } catch (e) {
+      state.error = e.message;
+    }
+    render();
+  }
+
   function viewSettings() {
     const me = state.me;
     const st = me.settings;
@@ -787,6 +801,17 @@
               onchange: () => patchSettings({ one_booking_per_day: !st.one_booking_per_day },
                 st.one_booking_per_day ? "Ограничение выключено" : "Ограничение включено") }),
             h("span", { class: "slider" })))),
+
+      web ? h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Вход с этого компьютера"),
+        h("div", { class: "set-hint" }, "Кабинет открыт в браузере. На чужом компьютере не забудьте выйти."),
+        h("button", { class: "btn secondary danger", onclick: logout }, "Выйти"))
+      : h("div", { class: "card" },
+        h("div", { class: "set-title" }, "Кабинет на компьютере"),
+        h("div", { class: "set-hint" },
+          "Удобно вести записи с большого экрана. Пришлём в чат с ботом ссылку для входа — откройте её в браузере на компьютере."),
+        state.webLoginUrl ? h("div", { class: "link-box" }, state.webLoginUrl) : null,
+        h("button", { class: "btn secondary", onclick: requestWebLogin }, "Получить ссылку для входа")),
 
       h("div", { class: "card" },
         h("div", { class: "set-title", style: "margin-top:0" }, "Часовой пояс"),
@@ -976,7 +1001,9 @@
       class: "tab" + (state.tab === id ? " active" : ""),
       onclick: () => switchTab(id),
     }, title);
+    const back = !hasNativeBack && currentBack();
     return [
+      back ? h("button", { class: "back-link", onclick: () => back() }, "← Назад") : null,
       h("div", { class: "header" },
         h("div", { class: "avatar" }, (me.name || "?").trim().charAt(0).toUpperCase()),
         h("div", { class: "grow" },
@@ -1035,16 +1062,57 @@
     app.replaceChildren(h("div", { class: "center" }, h("p", null, text)));
   }
 
+  // ---------- вход в браузере ----------
+  async function webLogin() {
+    const code = query.get("login");
+    if (code) {
+      try { history.replaceState(null, "", "/cabinet"); } catch (_) { /* нет */ }
+      try {
+        const { token } = await api("/web/master-login", { method: "POST", body: JSON.stringify({ code }) });
+        store.set("okMaster", token);
+      } catch (e) {
+        return e.message;
+      }
+    }
+    const token = store.get("okMaster");
+    if (token) setAuth("master " + token);
+    return token ? null : "";
+  }
+
+  async function viewLogin(error) {
+    let bot = null;
+    try { bot = (await api("/web/config")).max_bot_url; } catch (_) { /* без кнопки */ }
+    document.title = "Кабинет мастера — Окошко";
+    app.replaceChildren(h("div", { class: "login" },
+      h("div", { class: "avatar" }, "О"),
+      h("h1", null, "Кабинет мастера"),
+      error ? h("div", { class: "error" }, error) : null,
+      h("p", null, "Вход — по ссылке из бота «Окошко» в MAX:"),
+      h("ol", { class: "steps" },
+        h("li", null, "Откройте бота в MAX — на телефоне или в MAX на компьютере."),
+        h("li", null, "Нажмите «Кабинет на компьютере» в меню."),
+        h("li", null, "Откройте присланную ссылку в этом браузере — она действует 10 минут.")),
+      bot ? h("a", { class: "btn", href: bot, target: "_blank", rel: "noopener" }, "Открыть бота в MAX") : null,
+      h("p", { class: "small muted" }, "Ещё не зарегистрированы? Откройте бота и нажмите «Начать».")));
+  }
+
+  function logout() {
+    store.set("okMaster", null);
+    setAuth(null);
+    viewLogin("");
+  }
+
   async function start() {
     ready();
     setBack(null);
-    if (channel === "web") {
-      fatal("Кабинет открывается из бота в MAX или Telegram: кнопка «Открыть кабинет» в меню.");
-      return;
+    if (web) {
+      const err = await webLogin();
+      if (err !== null) { viewLogin(err); return; }
     }
     try {
       state.me = await api("/cabinet/me");
     } catch (e) {
+      if (web && e.status === 401) { store.set("okMaster", null); viewLogin(e.message); return; }
       fatal(e.message);
       return;
     }

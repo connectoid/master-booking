@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.models import Channel
 from app.runtime import runtime
 
-TITLES = {Channel.MAX: "MAX", Channel.TELEGRAM: "Telegram"}
+TITLES = {Channel.MAX: "MAX", Channel.WEB: "Сайт", Channel.TELEGRAM: "Telegram"}
 
 
 @dataclass(frozen=True)
@@ -45,10 +45,21 @@ def share_link(channel: Channel, slug: str) -> str | None:
     return None
 
 
+def site_link(slug: str) -> str | None:
+    """Запись в обычном браузере: okoshko.website/<slug>."""
+    base = get_settings().public_base_url.rstrip("/")
+    return f"{base}/{slug}" if base.startswith("https://") else None
+
+
 def share_links(slug: str) -> list[ShareLink]:
-    """Ссылки во всех подключённых мессенджерах (сначала MAX)."""
+    """Ссылки во всех подключённых мессенджерах и на сайт (MAX, сайт, Telegram)."""
     out = []
-    for channel in (Channel.MAX, Channel.TELEGRAM):
+    site = site_link(slug)
+    for channel in (Channel.MAX, Channel.WEB, Channel.TELEGRAM):
+        if channel == Channel.WEB:
+            if site:
+                out.append(ShareLink(channel, TITLES[channel], site))
+            continue
         if channel in runtime.messengers or _username(channel):
             url = share_link(channel, slug)
             if url:

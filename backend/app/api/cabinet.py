@@ -9,11 +9,14 @@ import datetime as dt
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
 from pydantic import AwareDatetime, BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import get_channel_user
+from app.channels import web_auth
+from app.config import Settings as AppSettings
+from app.config import get_settings
 from app.bot import texts
 from app.bot.parsing import MAX_RANGE_DAYS, ParseError, check_ranges, days_between
 from app.channels import links
@@ -29,7 +32,32 @@ router = APIRouter(prefix="/api/cabinet", tags=["cabinet"])
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 
-async def current_master(user: CurrentUser, session: Session) -> Master:
+async def cabinet_channel(authorization: Annotated[str | None, Header()] = None,
+                          x_channel: Annotated[str | None, Header()] = None) -> Channel:
+    """Откуда открыт кабинет: мессенджер или браузер («Authorization: master …»)."""
+    if (authorization or "").lower().startswith("master "):
+        return Channel.WEB
+    try:
+        return Channel((x_channel or "").lower())
+    except ValueError:
+        return Channel.MAX
+
+
+async def current_master(
+    session: Session,
+    settings: Annotated[AppSettings, Depends(get_settings)],
+    authorization: Annotated[str | None, Header()] = None,
+    x_channel: Annotated[str | None, Header()] = None,
+) -> Master:
+    scheme, _, value = (authorization or "").partition(" ")
+    if scheme.lower() == "master":  # кабинет в браузере
+        master_id = web_auth.verify_master_token(settings, value.strip())
+        master = await session.get(Master, master_id) if master_id else None
+        if master is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                                "Сессия истекла — войдите заново через бота: «Кабинет на компьютере».")
+        return master
+    user = await get_channel_user(settings, authorization, x_channel)
     master = await ms.get_master_by_account(session, user.channel, user.external_user_id)
     if master is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
@@ -38,6 +66,7 @@ async def current_master(user: CurrentUser, session: Session) -> Master:
 
 
 CurrentMaster = Annotated[Master, Depends(current_master)]
+CabinetChannel = Annotated[Channel, Depends(cabinet_channel)]
 
 
 # ---------- схемы ----------
@@ -154,11 +183,11 @@ def _client_links(master: Master, channel: Channel) -> list[ClientLink]:
 # ---------- эндпоинты ----------
 
 @router.get("/me", response_model=CabinetOut)
-async def me(master: CurrentMaster, user: CurrentUser, session: Session) -> CabinetOut:
+async def me(master: CurrentMaster, channel: CabinetChannel, session: Session) -> CabinetOut:
     weekly = await ms.get_weekly_schedule(session, master.id)
     now_local = dt.datetime.now(ZoneInfo(master.timezone))
     offset = now_local.strftime("%z")
-    client_links = _client_links(master, user.channel)
+    client_links = _client_links(master, channel)
     return CabinetOut(
         slug=master.slug,
         name=master.name,
@@ -491,3 +520,33 @@ async def cancel(
         raise _booking_http(e) from e
     if runtime.messengers:
         await notify.appointment_cancelled_by_master(session, appointment_id)
+
+
+# ---------- кабинет на компьютере ----------
+
+class WebLoginOut(BaseModel):
+    url: str
+    sent: bool  # ссылка отправлена в чат с ботом
+
+
+@router.post("/web-login", response_model=WebLoginOut)
+async def web_login(master: CurrentMaster, session: Session) -> WebLoginOut:
+    """Ссылка для входа в кабинет из браузера (10 минут) — в ответе и в чат с ботом."""
+    from app.bot.handlers import web_login_url
+    from app.bot.ui import Button
+
+    url = web_login_url(master)
+    sent = False
+    for acc in await ms.master_accounts(session, master.id):
+        messenger = runtime.messengers.get(Channel(acc.channel))
+        if messenger is None:
+            continue
+        try:
+            await messenger.send(
+                acc.external_user_id,
+                f"Вход в кабинет с компьютера (ссылка действует 10 минут):\n{url}",
+                [[Button("Открыть кабинет в браузере", url=url)]])
+            sent = True
+        except Exception:  # не дошло — ссылка всё равно есть в ответе
+            pass
+    return WebLoginOut(url=url, sent=sent)
