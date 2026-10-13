@@ -136,3 +136,44 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
 }
 .footer { margin-top: 28px; text-align: center; font-size: 12px; color: var(--muted); }
 .footer a { color: inherit; }
+
+/* ---------- кабинет мастера ---------- */
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.day-card.off { opacity: 0.75; }
+.day-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.day-name { font-weight: 600; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; color: var(--muted); font-size: 14px; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .slider {
+  width: 44px; height: 26px; border-radius: 13px; background: var(--line); position: relative; flex: none;
+  transition: background 0.15s;
+}
+.switch .slider::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider::after { transform: translateX(18px); }
+.switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+.intervals { margin-top: 10px; }
+.interval { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.interval .time { flex: 1; min-width: 0; padding: 10px; text-align: center; }
+.interval .dash { color: var(--muted); }
+.icon-btn {
+  width: 36px; height: 36px; flex: none; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--card); color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.icon-btn.placeholder { border: 0; background: none; cursor: default; }
+.day-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.field-error { color: var(--danger); font-size: 13px; margin: -2px 0 6px; }
+.notice {
+  background: var(--accent-soft); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 14px;
+}
+.save-bar {
+  position: sticky; bottom: 0; padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--bg) 75%, transparent);
+}
+.save-bar .btn { margin-top: 8px; }

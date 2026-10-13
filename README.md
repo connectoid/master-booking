@@ -69,3 +69,10 @@ TEST_DATABASE_URL=postgresql+psycopg://booking:booking@localhost:5432/booking_te
 В платформе MAX: **Чат-боты → ⋮ → Настройки** → ссылка на мини-приложение `https://<домен>/app/`.
 Ссылка для клиентов: `https://max.ru/<бот>?startapp=<slug>` (бот выдаёт её мастеру сам).
 Просмотр в браузере без записи: `https://<домен>/app/?m=<slug>`.
+
+## Кабинет мастера (Mini App)
+
+Открывается из бота кнопкой «Открыть кабинет» — ссылка `https://max.ru/<бот>?startapp=cabinet`.
+Доступ только мастеру: сервер сверяет пользователя из подписанного initData с `master_accounts`.
+API: `/api/cabinet/me`, `PUT /api/cabinet/schedule`, `PATCH /api/cabinet/settings`,
+`GET|PUT|DELETE /api/cabinet/overrides`. Сейчас в интерфейсе — недельный график.

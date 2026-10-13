@@ -98,3 +98,8 @@ def mini_app_link(bot_username: str, slug: str) -> str:
 
 def bot_start_link(bot_username: str, slug: str) -> str:
     return f"https://max.ru/{bot_username}?start={slug}"
+
+
+def cabinet_link(bot_username: str) -> str:
+    """Mini App в режиме кабинета мастера."""
+    return f"https://max.ru/{bot_username}?startapp=cabinet"

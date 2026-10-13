@@ -27,7 +27,7 @@ from app.bot.parsing import (
 from app.bot.state import clear_state, get_state, set_state
 from app.bot.ui import Button, Event, Keyboard, Messenger
 from app.channels.identity import ChannelUser
-from app.channels.max.adapter import mini_app_link
+from app.channels.max.adapter import cabinet_link, mini_app_link
 from app.models import Channel, Master
 from app.notify import appointment_cancelled_by_client
 from app.services import booking
@@ -213,8 +213,16 @@ async def master_flow(ctx: Ctx, master: Master) -> None:
     await show_menu(ctx, master)
 
 
+def menu_keyboard(ctx: Ctx) -> Keyboard:
+    kb = list(MENU)
+    if ctx.bot_username:
+        kb.insert(0, [Button("Открыть кабинет", url=cabinet_link(ctx.bot_username))])
+    return kb
+
+
 async def show_menu(ctx: Ctx, master: Master, prefix: str = "") -> None:
-    await ctx.reply((prefix + "\n\n" if prefix else "") + f"{master.name} — что открыть?", MENU)
+    await ctx.reply((prefix + "\n\n" if prefix else "") + f"{master.name} — что открыть?",
+                    menu_keyboard(ctx))
 
 
 async def master_callback(ctx: Ctx, master: Master, payload: str) -> None:
@@ -322,8 +330,11 @@ async def master_add_services(ctx: Ctx, master: Master, text: str) -> None:
 async def show_schedule(ctx: Ctx, master: Master) -> None:
     weekly = await ms.get_weekly_schedule(ctx.session, master.id)
     text = ("Ваш график:\n" + format_schedule(weekly)) if weekly else "График ещё не задан."
-    await ctx.reply(text, [[Button("Изменить график", payload="m:sch_edit")],
-                           [Button("Меню", payload="m:menu")]])
+    kb: Keyboard = [[Button("Изменить текстом", payload="m:sch_edit")]]
+    if ctx.bot_username:
+        kb.insert(0, [Button("Настроить в кабинете", url=cabinet_link(ctx.bot_username))])
+    kb.append([Button("Меню", payload="m:menu")])
+    await ctx.reply(text, kb)
 
 
 async def master_set_schedule(ctx: Ctx, master: Master, text: str) -> None:

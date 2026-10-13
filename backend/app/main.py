@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.api.cabinet import router as cabinet_router
 from app.api.public import router as public_router
 from app.channels.max.adapter import MaxMessenger
 from app.channels.max.client import MaxClient
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Окошко — запись к мастеру", lifespan=lifespan)
 app.include_router(public_router)
+app.include_router(cabinet_router)
 app.include_router(max_router)
 
 

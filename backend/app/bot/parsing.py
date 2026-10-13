@@ -110,6 +110,18 @@ def _parse_days(raw: str) -> list[int]:
     return days
 
 
+def check_ranges(ranges: list[TimeRange], where: str = "") -> list[TimeRange]:
+    """Проверка интервалов дня: начало раньше конца, без пересечений. Возвращает отсортированные."""
+    ranges = sorted(ranges)
+    for start, end in ranges:
+        if start >= end:
+            raise ParseError(f"{where}начало {start:%H:%M} должно быть раньше конца {end:%H:%M}")
+    for (_, e1), (s2, _) in zip(ranges, ranges[1:], strict=False):
+        if s2 < e1:
+            raise ParseError(f"{where}интервалы пересекаются")
+    return ranges
+
+
 def parse_ranges(times_raw: str, line: str = "") -> list[TimeRange]:
     """«10-14, 15-19» → [(10:00, 14:00), (15:00, 19:00)] без пересечений."""
     ranges: list[TimeRange] = []

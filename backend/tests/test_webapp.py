@@ -9,7 +9,9 @@ async def test_webapp_served():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/app/")
         assert r.status_code == 200 and "max-web-app.js" in r.text
-        r = await c.get("/app/app.js")
-        assert r.status_code == 200 and "initDataUnsafe" in r.text
+        for name in ("core.js", "app.js", "cabinet.js"):
+            assert f"{name}?v=" in r.text
+            assert (await c.get(f"/app/{name}")).status_code == 200
+        assert "initDataUnsafe" in (await c.get("/app/core.js")).text
         r = await c.get("/app", follow_redirects=False)
         assert r.status_code in (301, 307, 308)
