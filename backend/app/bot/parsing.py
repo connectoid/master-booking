@@ -228,7 +228,7 @@ def parse_date_range(raw: str, today: dt.date) -> tuple[dt.date, dt.date]:
     if end < start:
         raise ParseError("Конец периода раньше начала")
     if (end - start).days >= MAX_RANGE_DAYS:
-        raise ParseError(f"Слишком длинный период — не больше {MAX_RANGE_DAYS} дней за раз")
+        raise ParseError(f"Слишком длинный период: не больше {MAX_RANGE_DAYS} дней за раз")
     return start, end
 
 

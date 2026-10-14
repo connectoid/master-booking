@@ -113,7 +113,7 @@ async def test_onboarding_services_schedule_link(bot):
     await send("text", text="привет")
     assert "m:today" in fake.payloads()
     await send("callback", payload="m:services")
-    assert "Маникюр — 90 мин, 1 500 ₽" in fake.last()[0]
+    assert "Маникюр, 90 мин, 1 500 ₽" in fake.last()[0]
     svc_id = await scalar(engine, "SELECT id FROM services WHERE name = 'Снятие'")
     await send("callback", payload=f"m:svc_del:{svc_id}")
     assert "Снятие" not in fake.last()[0]
@@ -158,7 +158,7 @@ async def test_booking_notifications_reminders_and_cancel(bot):
 
     # запись видна мастеру
     await send("callback", payload="m:week")
-    assert "Маникюр — Ольга" in fake.last()[0]
+    assert "Маникюр (Ольга" in fake.last()[0]
 
     # напоминание «за сутки» созрело
     await scalar(engine, "UPDATE reminders SET send_at = now() - interval '1 minute' "

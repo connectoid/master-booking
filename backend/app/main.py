@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
         runtime.reset()
 
 
-app = FastAPI(title="Окошко — запись к мастеру", lifespan=lifespan)
+app = FastAPI(title="Окошко: запись к мастеру", lifespan=lifespan)
 app.include_router(public_router)
 app.include_router(cabinet_router)
 app.include_router(admin_router)

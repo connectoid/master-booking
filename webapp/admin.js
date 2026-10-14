@@ -44,14 +44,14 @@
   }
 
   function viewLogin(error) {
-    document.title = "Админка — Окошко";
+    document.title = "Админка · Окошко";
     app.replaceChildren(h("div", { class: "login" },
       h("div", { class: "avatar" }, "О"),
       h("h1", null, "Админка «Окошко»"),
       error ? h("div", { class: "error" }, error) : null,
       h("p", null, "Отправьте боту «Окошко» в MAX команду ", h("b", null, "/admin"),
-        " — придёт ссылка для входа (10 минут)."),
-      h("p", { class: "small muted" }, "Доступ — только для ID из ADMIN_MAX_IDS в .env на сервере. Свой ID бот покажет по команде /myid.")));
+        ". Придёт ссылка для входа, она действует 10 минут."),
+      h("p", { class: "small muted" }, "Доступ есть только у ID из ADMIN_MAX_IDS в .env на сервере. Свой ID бот покажет по команде /myid.")));
   }
 
   function logout() {
@@ -186,7 +186,7 @@
           h("div", { class: "set-title" }, `Услуги (${d.services_list.length})`),
           d.services_list.length ? h("ul", { class: "plain" }, d.services_list.map((s) =>
             h("li", { class: s.is_active ? "" : "muted" },
-              `${s.name} — ${s.duration_min} мин, ${s.price === null ? "по договорённости" : num(s.price) + " ₽"}`
+              `${s.name}, ${s.duration_min} мин, ${s.price === null ? "по договорённости" : num(s.price) + " ₽"}`
               + (s.is_active ? "" : " (скрыта)")))) : h("div", { class: "muted" }, "нет"),
           h("div", { class: "set-title" }, "График"),
           h("pre", { class: "sched" }, d.schedule)),
@@ -201,11 +201,11 @@
             h("input", { type: "date", value: state.dateDraft, class: "time", oninput: (e) => { state.dateDraft = e.target.value; } }),
             h("button", { class: "btn secondary small-btn", onclick: () => state.dateDraft && patch({ paid_until: state.dateDraft }, "Дата сохранена") }, "Поставить дату"),
             d.paid_until ? h("button", { class: "btn secondary small-btn danger", onclick: () => patch({ paid_until: null }, "Дата снята") }, "Снять") : null),
-          h("div", { class: "set-hint" }, "На время запуска ни на что не влияет — только для учёта."),
+          h("div", { class: "set-hint" }, "На время запуска ни на что не влияет, только для учёта."),
 
           h("div", { class: "set-title" }, "Блокировка"),
           d.blocked_at
-            ? [h("div", { class: "kv" }, `Заблокирован ${fmtDate(d.blocked_at)} — страница записи закрыта.`),
+            ? [h("div", { class: "kv" }, `Заблокирован ${fmtDate(d.blocked_at)}, страница записи закрыта.`),
               h("button", { class: "btn secondary small-btn", onclick: () => patch({ blocked: false }, "Разблокирован") }, "Разблокировать")]
             : [h("button", { class: "btn secondary small-btn danger", onclick: () => {
               if (!state.confirmBlock) { state.confirmBlock = true; render(); return; }
@@ -284,7 +284,7 @@
   async function start() {
     const err = await login();
     if (err !== null) { viewLogin(err); return; }
-    document.title = "Админка — Окошко";
+    document.title = "Админка · Окошко";
     app.replaceChildren(h("div", { class: "center muted" }, "Загрузка…"));
     await load();
   }

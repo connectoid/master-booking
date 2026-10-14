@@ -107,7 +107,7 @@ async def create_appointment(
     background: BackgroundTasks,
 ) -> AppointmentOut:
     if user.channel == Channel.WEB and (not body.client_name or not body.phone):
-        raise HTTPException(422, "Укажите имя и телефон — мастер позвонит, если что-то изменится")
+        raise HTTPException(422, "Укажите имя и телефон, чтобы мастер мог позвонить, если что-то изменится")
     try:
         master = await booking.get_master(session, slug)
         service = await booking.get_service(session, master, body.service_id)

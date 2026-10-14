@@ -55,7 +55,7 @@ async def current_master(
         master = await session.get(Master, master_id) if master_id else None
         if master is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED,
-                                "Сессия истекла — войдите заново через бота: «Кабинет на компьютере».")
+                                "Сессия истекла. Войдите заново через бота: «Кабинет на компьютере».")
         return master
     user = await get_channel_user(settings, authorization, x_channel)
     master = await ms.get_master_by_account(session, user.channel, user.external_user_id)
@@ -213,7 +213,7 @@ async def put_schedule(body: WeeklySchedule, master: CurrentMaster, session: Ses
         for d in body.days if d.intervals
     }
     if not weekly:
-        raise HTTPException(422, "Нужен хотя бы один рабочий день — иначе клиенты не смогут записаться")
+        raise HTTPException(422, "Нужен хотя бы один рабочий день, иначе клиенты не смогут записаться")
     await ms.set_weekly_schedule(session, master, weekly)
     await session.commit()
     return _weekly_out(weekly)
@@ -324,13 +324,13 @@ def _clean_service_name(v: str | None) -> str | None:
         return v
     v = " ".join(v.split())
     if len(v) < 2:
-        raise ValueError("Название — хотя бы 2 символа")
+        raise ValueError("В названии нужно хотя бы 2 символа")
     return v
 
 
 def _check_duration(v: int | None) -> int | None:
     if v is not None and v % 5:
-        raise ValueError("Длительность — кратно 5 минутам")
+        raise ValueError("Длительность должна быть кратна 5 минутам")
     return v
 
 

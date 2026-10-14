@@ -153,7 +153,7 @@ async def reorder_services(session: AsyncSession, master: Master, ids: list[int]
     services = await all_services(session, master.id)
     by_id = {s.id: s for s in services}
     if sorted(ids) != sorted(by_id):
-        raise ValueError("Список услуг устарел — обновите экран")
+        raise ValueError("Список услуг устарел, обновите экран")
     for pos, sid in enumerate(ids, start=1):
         by_id[sid].position = pos
     await session.flush()

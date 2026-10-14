@@ -81,7 +81,7 @@ async def appointment_created(appointment_id: int) -> None:
             await _send(
                 contact.channel, contact.external_user_id,
                 f"Вы записаны к мастеру {master.name}\n{when}, {appt.service_name} "
-                f"({fmt_price(appt.price)})\n\nНапомним заранее. Если планы изменятся — "
+                f"({fmt_price(appt.price)})\n\nНапомним заранее. Если планы изменятся, "
                 "отмените запись кнопкой ниже.",
                 [[Button("Отменить запись", payload=f"c:cancel:{appt.id}")]],
             )

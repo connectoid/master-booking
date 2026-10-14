@@ -41,7 +41,7 @@ async def main(argv: list[str]) -> int:
             await client.set_webhook(url, s.telegram_webhook_secret, ALLOWED_UPDATES)
             await client.set_my_commands([{"command": "start", "description": "Меню"}])
             print("Вебхук подключён:", url)
-            print(f"Mini App: {s.public_base_url.rstrip('/')}/app/ — укажите этот адрес в @BotFather "
+            print(f"Mini App: {s.public_base_url.rstrip('/')}/app/. Укажите этот адрес в @BotFather "
                   "(Bot Settings → Configure Mini App), чтобы работали ссылки t.me/<бот>?startapp=…")
     except TelegramApiError as e:
         print("Ошибка Telegram API:", e)

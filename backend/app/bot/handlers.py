@@ -141,7 +141,7 @@ async def send_web_login(ctx: Ctx, master: Master) -> None:
     await ctx.reply(
         "Вход в кабинет с компьютера. Откройте ссылку в браузере в течение 10 минут:\n"
         f"{url}\n\n"
-        "Удобнее всего — открыть MAX на компьютере (приложение или веб-версию) и нажать на ссылку здесь. "
+        "Удобнее всего открыть MAX на компьютере (приложение или веб-версию) и нажать на ссылку здесь. "
         "Не пересылайте ссылку другим: по ней открывается ваш кабинет.",
         [[Button("Открыть кабинет в браузере", url=url)], [Button("Меню", payload="m:menu")]],
     )
@@ -156,14 +156,14 @@ async def client_link_web(ctx: Ctx, code: str) -> None:
         return
     linked = await web_clients.link_messenger(ctx.session, wid, ctx.user)
     if not linked:
-        await ctx.reply("Записей из браузера не нашли. Если вы отменили запись — "
+        await ctx.reply("Записей из браузера не нашли. Если вы отменили запись, "
                         "запишитесь снова по ссылке мастера.")
         return
     lines = []
     for master, client in linked:
         tz = ZoneInfo(master.timezone)
         for a in await web_clients.upcoming(ctx.session, client):
-            lines.append(f"• {texts.fmt_when(a.starts_at, tz)}, {a.service_name} — {master.name}")
+            lines.append(f"• {texts.fmt_when(a.starts_at, tz)}, {a.service_name}, мастер {master.name}")
     text = "Готово! Напоминания о записях придут сюда, отменить запись можно кнопкой в напоминании."
     if lines:
         text += "\n\nВаши записи:\n" + "\n".join(lines)
@@ -185,7 +185,7 @@ async def client_start(ctx: Ctx, slug: str) -> None:
     kb = [[button]] if button else None
     await ctx.reply(
         f"Онлайн-запись: {master.name}\n\n"
-        "Выберите услугу и свободное время — подтверждение и напоминания придут сюда.",
+        "Выберите услугу и свободное время. Подтверждение и напоминания придут сюда.",
         kb,
     )
 
@@ -206,7 +206,7 @@ async def client_callback(ctx: Ctx) -> None:
             await ctx.reply(err.message)
             return
         await ctx.toast("Запись отменена")
-        await ctx.reply("Запись отменена. Если захотите прийти в другое время — запишитесь заново "
+        await ctx.reply("Запись отменена. Если захотите прийти в другое время, запишитесь заново "
                         "по ссылке мастера.")
         await appointment_cancelled_by_client(ctx.session, appointment_id)
 
@@ -250,7 +250,7 @@ async def onboarding(ctx: Ctx) -> None:
         return
 
     await clear_state(ctx.session, ctx.channel, e.user_id)
-    await ctx.reply(texts.WELCOME, [[Button("Я мастер — настроить запись", payload="m:register")]])
+    await ctx.reply(texts.WELCOME, [[Button("Я мастер: настроить запись", payload="m:register")]])
 
 
 # ---------- мастер ----------
@@ -291,7 +291,7 @@ def menu_keyboard(ctx: Ctx) -> Keyboard:
 
 
 async def show_menu(ctx: Ctx, master: Master, prefix: str = "") -> None:
-    await ctx.reply((prefix + "\n\n" if prefix else "") + f"{master.name} — что открыть?",
+    await ctx.reply((prefix + "\n\n" if prefix else "") + f"{master.name}, что открыть?",
                     menu_keyboard(ctx))
 
 
@@ -368,10 +368,10 @@ async def master_callback(ctx: Ctx, master: Master, payload: str) -> None:
 async def show_services(ctx: Ctx, master: Master) -> None:
     services = await ms.active_services(ctx.session, master.id)
     if not services:
-        text = "Услуг пока нет. Добавьте их — без услуг клиенты не смогут записаться."
+        text = "Услуг пока нет. Добавьте их, без услуг клиенты не смогут записаться."
     else:
         lines = [
-            f"{i}. {s.name} — {s.duration_min} мин, {texts.fmt_price(s.price)}"
+            f"{i}. {s.name}, {s.duration_min} мин, {texts.fmt_price(s.price)}"
             for i, s in enumerate(services, 1)
         ]
         text = "Ваши услуги:\n" + "\n".join(lines)
@@ -417,7 +417,7 @@ async def master_set_schedule(ctx: Ctx, master: Master, text: str) -> None:
                         [[Button("Меню", payload="m:menu")]])
         return
     if not weekly:
-        await ctx.reply("Получились одни выходные — клиенты не смогут записаться. "
+        await ctx.reply("Получились одни выходные, и клиенты не смогут записаться. "
                         "Укажите хотя бы один рабочий день, например: пн-пт 10-19")
         return
     await ms.set_weekly_schedule(ctx.session, master, weekly)
@@ -436,7 +436,7 @@ async def show_exceptions(ctx: Ctx, master: Master, prefix: str = "") -> None:
     if overrides:
         body = "Особые дни (вместо обычного графика):\n" + format_overrides(overrides)
     else:
-        body = "Особых дней нет — работаете по обычному графику."
+        body = "Особых дней нет, вы работаете по обычному графику."
     kb: Keyboard = [
         [Button("Добавить выходные или часы", payload="m:off_add")],
         [Button("График на неделю", payload="m:week_add")],
@@ -454,10 +454,10 @@ async def _warn_existing(ctx: Ctx, master: Master, days: list[dt.date]) -> str:
         return ""
     tz = ZoneInfo(master.timezone)
     lines = [
-        f"{texts.fmt_when(a.starts_at, tz)} — {c.name}" + (f", {c.phone}" if c.phone else "")
+        f"{texts.fmt_when(a.starts_at, tz)}: {c.name}" + (f", {c.phone}" if c.phone else "")
         for a, c in rows[:15]
     ]
-    return ("\n\nНа эти даты уже есть записи — они сохранены, договоритесь с клиентами о "
+    return ("\n\nНа эти даты уже есть записи. Они сохранены, договоритесь с клиентами о "
             "переносе или отмене:\n" + "\n".join(lines))
 
 
@@ -483,7 +483,7 @@ async def master_week_dates(ctx: Ctx, master: Master, text: str) -> None:
         await _retry(ctx, err)
         return
     if (end - start).days > 30:
-        await _retry(ctx, ParseError("Для особого графика — не больше месяца за раз"))
+        await _retry(ctx, ParseError("Особый график можно задать не больше чем на месяц за раз"))
         return
     await set_state(ctx.session, ctx.channel, ctx.event.user_id, WEEK_SCHED,
                     {"start": start.isoformat(), "end": end.isoformat()})
@@ -565,7 +565,7 @@ async def show_link(ctx: Ctx, master: Master) -> None:
     if len(found) == 1:
         head = f"Ваша ссылка для записи:\n{found[0].url}"
     else:
-        head = "Ваши ссылки для записи — клиент выберет, где ему удобнее:\n" + "\n".join(
+        head = "Ваши ссылки для записи. Клиент выберет, где ему удобнее:\n" + "\n".join(
             f"{x.title}: {x.url}" for x in found)
     await ctx.reply(
         f"{head}\n\n"
@@ -593,7 +593,7 @@ async def show_appointments(ctx: Ctx, master: Master, days: int) -> None:
             lines.append(f"\n{texts.fmt_day(current_day)}")
         who = f"{client.name}, {client.phone}" if client.phone else client.name
         lines.append(
-            f"{local:%H:%M}–{appt.ends_at.astimezone(tz):%H:%M} {appt.service_name} — {who}"
+            f"{local:%H:%M}–{appt.ends_at.astimezone(tz):%H:%M} {appt.service_name} ({who})"
         )
     await ctx.reply("\n".join(lines), [[Button("Меню", payload="m:menu")]])
 

@@ -164,7 +164,7 @@
   function viewSchedule() {
     return [
       h("p", { class: "small muted" },
-        "Обычная неделя. Перерыв — это второй интервал в тот же день. "
+        "Обычная неделя. Чтобы сделать перерыв, добавьте второй интервал в тот же день. "
         + "Выходные и отпуск на конкретные даты пока настраиваются в боте."),
       state.notice ? h("div", { class: "notice" }, state.notice) : null,
       state.week.map(dayCard),
@@ -370,7 +370,7 @@
     if (f.serviceId) {
       out.push(h("label", null, `Время, ${dayLabel(state.day)}`));
       if (state.freeSlots === null) out.push(h("div", { class: "muted small" }, "Ищем свободное время…"));
-      else if (!state.freeSlots.length) out.push(h("p", { class: "muted small" }, "По графику свободного времени нет — укажите время вручную."));
+      else if (!state.freeSlots.length) out.push(h("p", { class: "muted small" }, "По графику свободного времени нет, укажите время вручную."));
       else {
         out.push(h("div", { class: "slots" }, state.freeSlots.map((iso) =>
           h("button", {
@@ -392,7 +392,7 @@
       state.hints.length ? h("div", { class: "hints" }, state.hints.map((c) =>
         h("button", { class: "hint", onclick: () => pickHint(c) },
           c.name, c.phone ? h("span", { class: "chip-sub" }, c.phone) : null))) : null,
-      f.clientId ? h("div", { class: "small muted" }, "Постоянный клиент — запись попадёт в его историю") : null,
+      f.clientId ? h("div", { class: "small muted" }, "Постоянный клиент: запись попадёт в его историю") : null,
       h("label", { for: "cphone" }, "Телефон (необязательно)"),
       h("input", { id: "cphone", type: "tel", value: f.phone, placeholder: "+7…",
         oninput: (e) => { f.phone = e.target.value; } }),
@@ -498,8 +498,8 @@
   function conflictText(list) {
     if (!list.length) return "";
     const lines = list.slice(0, 8).map((a) =>
-      `${dayLabel(a.starts_at)} ${timeOf(a.starts_at)} — ${a.client_name}${a.phone ? ", " + a.phone : ""}`);
-    return " На эти дни уже есть записи — они сохранены, договоритесь с клиентами: " + lines.join("; ")
+      `${dayLabel(a.starts_at)} ${timeOf(a.starts_at)}, ${a.client_name}${a.phone ? ", " + a.phone : ""}`);
+    return " На эти дни уже есть записи. Они сохранены, договоритесь с клиентами: " + lines.join("; ")
       + (list.length > 8 ? ` и ещё ${list.length - 8}` : "") + ".";
   }
 
@@ -718,10 +718,10 @@
   async function copyLink(link) {
     try {
       await navigator.clipboard.writeText(link);
-      state.notice = "Ссылка скопирована — отправьте её клиентам или добавьте в профиль";
+      state.notice = "Ссылка скопирована. Отправьте её клиентам или добавьте в профиль";
       haptic("success");
     } catch (_) {
-      state.notice = "Не получилось скопировать автоматически — выделите ссылку и скопируйте вручную";
+      state.notice = "Не получилось скопировать автоматически. Выделите ссылку и скопируйте вручную";
     }
     render();
   }
@@ -730,7 +730,7 @@
     try {
       const r = await api("/cabinet/web-login", { method: "POST" });
       state.webLoginUrl = r.url;
-      state.notice = r.sent ? "Ссылка отправлена в чат с ботом — действует 10 минут" : "Скопируйте ссылку — она действует 10 минут";
+      state.notice = r.sent ? "Ссылка отправлена в чат с ботом и действует 10 минут" : "Скопируйте ссылку, она действует 10 минут";
       haptic("success");
     } catch (e) {
       state.error = e.message;
@@ -784,12 +784,12 @@
         h("div", { class: "set-title" }, "Шаг времени записи"),
         choice(me.step_options.map((m) => [m, m + " мин"]), st.slot_step_min,
           (v) => patchSettings({ slot_step_min: v }, `Время предлагается каждые ${v} мин`)),
-        h("div", { class: "set-hint" }, "Как часто предлагать время: 15 мин — 10:00, 10:15, 10:30…"),
+        h("div", { class: "set-hint" }, "Как часто предлагать время. Например, при 15 мин: 10:00, 10:15, 10:30…"),
 
         h("div", { class: "set-title" }, "Пауза между клиентами"),
         choice(me.buffer_options.map((m) => [m, m ? m + " мин" : "нет"]), st.buffer_min,
           (v) => patchSettings({ buffer_min: v }, v ? `Пауза ${v} мин после каждого клиента` : "Без паузы")),
-        h("div", { class: "set-hint" }, "Время на уборку и подготовку — в него никто не запишется.")),
+        h("div", { class: "set-hint" }, "Время на уборку и подготовку. В него никто не запишется.")),
 
       h("div", { class: "card" },
         h("div", { class: "row-between" },
@@ -809,7 +809,7 @@
       : h("div", { class: "card" },
         h("div", { class: "set-title" }, "Кабинет на компьютере"),
         h("div", { class: "set-hint" },
-          "Удобно вести записи с большого экрана. Пришлём в чат с ботом ссылку для входа — откройте её в браузере на компьютере."),
+          "Удобно вести записи с большого экрана. Пришлём в чат с ботом ссылку для входа, откройте её в браузере на компьютере."),
         state.webLoginUrl ? h("div", { class: "link-box" }, state.webLoginUrl) : null,
         h("button", { class: "btn secondary", onclick: requestWebLogin }, "Получить ссылку для входа")),
 
@@ -869,7 +869,7 @@
     const name = f.name.trim().replace(/\s+/g, " ");
     const priceRaw = f.price.replace(/\s/g, "");
     state.error = name.length < 2 ? "Введите название услуги"
-      : priceRaw && !/^\d+$/.test(priceRaw) ? "Цена — целое число рублей или пусто"
+      : priceRaw && !/^\d+$/.test(priceRaw) ? "Цена: целое число рублей или пустое поле"
       : "";
     if (state.error) { haptic("error"); render(); return; }
     const body = { name, duration_min: Number(f.duration), price: priceRaw ? Number(priceRaw) : null };
@@ -941,9 +941,9 @@
       state.error ? h("div", { class: "error" }, state.error) : null,
       !list.length ? h("div", { class: "card" },
         h("div", { class: "set-title" }, "Услуг пока нет"),
-        h("div", { class: "set-hint" }, "Добавьте хотя бы одну — без услуг клиенты не смогут записаться.")) : null,
+        h("div", { class: "set-hint" }, "Добавьте хотя бы одну, без услуг клиенты не смогут записаться.")) : null,
       list.length && !visible ? h("div", { class: "notice" },
-        "Все услуги скрыты — клиенты сейчас не могут записаться.") : null,
+        "Все услуги скрыты, поэтому клиенты сейчас не могут записаться.") : null,
       h("div", { class: "list" }, list.map((s, i) =>
         h("div", { class: "card svc" + (s.is_active ? "" : " hidden") },
           h("button", { class: "svc-main", onclick: () => openService(s) },
@@ -955,7 +955,7 @@
               onclick: () => moveService(i, 1) }, "↓")) : null))),
       h("button", { class: "btn", onclick: () => openService(null) }, "+ Добавить услугу"),
       list.length ? h("div", { class: "set-hint center-hint" },
-        "Нажмите на услугу, чтобы изменить. Стрелками — порядок, в котором её видят клиенты.") : null,
+        "Нажмите на услугу, чтобы изменить её. Стрелками можно поменять порядок, в котором услуги видят клиенты.") : null,
     ];
   }
 
@@ -975,7 +975,7 @@
       h("label", { for: "sprice" }, "Цена, ₽"),
       h("input", { id: "sprice", type: "text", inputmode: "numeric", value: f.price, placeholder: "по договорённости",
         oninput: (e) => { f.price = e.target.value; } }),
-      h("div", { class: "set-hint" }, "Оставьте пустым — клиент увидит «по договорённости»."),
+      h("div", { class: "set-hint" }, "Если оставить пустым, клиент увидит «по договорённости»."),
       f.id ? h("div", { class: "card", style: "margin-top:14px" },
         h("div", { class: "row-between" },
           h("div", null,
@@ -990,7 +990,7 @@
       f.id ? h("button", { class: "btn secondary danger", onclick: deleteService },
         f.confirmDelete ? "Точно удалить? Нажмите ещё раз" : "Удалить услугу") : null,
       f.id && f.confirmDelete ? h("div", { class: "set-hint" },
-        "Уже сделанные записи на эту услугу останутся. Если услуга ещё понадобится — лучше скройте её.") : null,
+        "Уже сделанные записи на эту услугу останутся. Если услуга ещё понадобится, лучше скройте её.") : null,
     ];
   }
 
@@ -1082,16 +1082,16 @@
   async function viewLogin(error) {
     let bot = null;
     try { bot = (await api("/web/config")).max_bot_url; } catch (_) { /* без кнопки */ }
-    document.title = "Кабинет мастера — Окошко";
+    document.title = "Кабинет мастера · Окошко";
     app.replaceChildren(h("div", { class: "login" },
       h("div", { class: "avatar" }, "О"),
       h("h1", null, "Кабинет мастера"),
       error ? h("div", { class: "error" }, error) : null,
-      h("p", null, "Вход — по ссылке из бота «Окошко» в MAX:"),
+      h("p", null, "Вход по ссылке из бота «Окошко» в MAX:"),
       h("ol", { class: "steps" },
-        h("li", null, "Откройте бота в MAX — на телефоне или в MAX на компьютере."),
+        h("li", null, "Откройте бота в MAX на телефоне или на компьютере."),
         h("li", null, "Нажмите «Кабинет на компьютере» в меню."),
-        h("li", null, "Откройте присланную ссылку в этом браузере — она действует 10 минут.")),
+        h("li", null, "Откройте присланную ссылку в этом браузере. Она действует 10 минут.")),
       bot ? h("a", { class: "btn", href: bot, target: "_blank", rel: "noopener" }, "Открыть бота в MAX") : null,
       h("p", { class: "small muted" }, "Ещё не зарегистрированы? Откройте бота и нажмите «Начать».")));
   }
@@ -1118,7 +1118,7 @@
     }
     loadWeek(state.me.schedule);
     state.day = state.me.today;
-    document.title = "Кабинет — " + state.me.name;
+    document.title = "Кабинет · " + state.me.name;
     render();
     loadAppointments();
     // не потерять несохранённые изменения при закрытии

@@ -134,7 +134,7 @@
     })));
     if (state.bookedDays.size) {
       out.push(h("p", { class: "small muted" },
-        "Неактивные дни — у вас уже есть запись: мастер принимает одну запись в день."));
+        "В неактивные дни у вас уже есть запись: мастер принимает одну запись в день."));
     }
     const current = days.find((d) => d.date === state.day) || days[0];
     if (state.bookedDays.has(current.date)) {
@@ -179,8 +179,8 @@
       h("button", { class: "btn", onclick: submit, disabled: state.sending },
         state.sending ? "Записываем…" : "Записаться"),
       h("p", { class: "small muted consent" },
-        "Нажимая «Записаться», вы соглашаетесь на обработку ваших данных для записи и напоминаний — ",
-        h("a", { href: "/privacy", target: "_blank", rel: "noopener" }, "политика конфиденциальности"), "."),
+        "Нажимая «Записаться», вы соглашаетесь на обработку ваших данных для записи и напоминаний. ",
+        h("a", { href: "/privacy", target: "_blank", rel: "noopener" }, "Политика конфиденциальности"), "."),
     );
     return out;
   }
@@ -195,7 +195,7 @@
         h("p", null, `${a.service_name}`),
         h("p", null, h("b", null, `${dayLabel(a.starts_at)}, ${timeOf(a.starts_at)}`)),
         h("p", { class: "muted small" }, `Мастер: ${state.master.name}. ` + (state.canMessage === false
-          ? "Вы не разрешили боту писать вам — напоминания не придут. Запись видна в «Мои записи»."
+          ? "Вы не разрешили боту писать вам, поэтому напоминания не придут. Запись видна в «Мои записи»."
           : "Подтверждение и напоминания придут в чат с ботом."))),
       h("button", { class: "btn secondary", onclick: openMy }, "Мои записи"),
       bridge && bridge.close ? h("button", { class: "btn", onclick: () => bridge.close() }, "Готово") : null,
@@ -221,7 +221,7 @@
     const win = window.open("about:blank", "_blank");
     try {
       const { url } = await api("/web/remind-link");
-      if (!url) throw new Error("Бот MAX сейчас недоступен — попробуйте позже.");
+      if (!url) throw new Error("Бот MAX сейчас недоступен, попробуйте позже.");
       if (win) win.location.href = url; else location.href = url;
     } catch (e) {
       if (win) win.close();
@@ -241,7 +241,7 @@
       h("div", { class: "card" },
         h("div", { class: "set-title" }, "Напоминание о записи"),
         h("div", { class: "set-hint" },
-          "Пришлём напоминание за день и за 2 часа в MAX — там же можно отменить запись."),
+          "Пришлём напоминание в MAX за день и за 2 часа до визита. Там же можно отменить запись."),
         h("button", { class: "btn", onclick: openRemindLink }, "Получать напоминания в MAX")),
       h("div", { class: "card" },
         h("div", { class: "set-title" }, "Ваши записи"),
@@ -276,7 +276,7 @@
   }
 
   function footer() {
-    return h("div", { class: "footer" }, "Онлайн-запись для мастеров — ",
+    return h("div", { class: "footer" }, "Онлайн-запись для мастеров: ",
       h("a", { href: "https://okoshko.website", target: "_blank", rel: "noopener" }, "Окошко"));
   }
 
@@ -331,7 +331,7 @@
   async function submit() {
     if (state.sending) return;
     if (web && (state.form.name.trim().length < 2 || state.form.phone.replace(/\D/g, "").length < 10)) {
-      state.error = "Укажите имя и телефон — мастер позвонит, если что-то изменится.";
+      state.error = "Укажите имя и телефон, чтобы мастер мог позвонить, если что-то изменится.";
       haptic("error");
       render();
       return;
@@ -430,7 +430,7 @@
       fatal(e.status === 404 ? "Мастер по этой ссылке не найден." : e.message);
       return;
     }
-    document.title = `${state.master.name} — запись`;
+    document.title = `${state.master.name}: запись`;
     go("services");
     loadBookedDays();
   }
