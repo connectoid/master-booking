@@ -159,5 +159,9 @@ async def test_pages(web):
     r = await c.get("/privacy")
     assert r.status_code == 200 and "152-ФЗ" in r.text and "{{" not in r.text
     assert (await c.get("/site/site.css")).status_code == 200
+    r = await c.get("/start")
+    assert r.status_code == 200 and "Создайте кабинет" in r.text and "https://max.ru/id123_bot" in r.text
+    r = await c.get("/qr/max-bot.svg")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
     assert (await c.get("/health")).json() == {"status": "ok"}
     assert (await c.get("/api/web/config")).json() == {"max_bot_url": "https://max.ru/id123_bot"}

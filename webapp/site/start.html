@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Создать кабинет мастера — Окошко</title>
+  <meta name="description" content="Создайте кабинет онлайн-записи за 5 минут в мессенджере MAX. Бесплатно на время запуска.">
+  <link rel="icon" href="/site/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/site/site.css?v=2">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-row">
+      <a class="logo" href="/"><span class="logo-mark" aria-hidden="true"></span>Окошко</a>
+      <nav class="top-nav">
+        <a href="/">О сервисе</a>
+        <a href="/cabinet">Войти</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="start">
+    <div class="wrap">
+      <p class="eyebrow">Бесплатно на время запуска</p>
+      <h1>Создайте кабинет за 5 минут</h1>
+      <p class="lead">Регистрация проходит в мессенджере MAX — там же вам будут приходить уведомления о новых записях.</p>
+
+      <div class="start-grid">
+        <ol class="start-steps">
+          <li>
+            <span class="step-num">1</span>
+            <div>
+              <h3>Откройте бота «Окошко» в MAX</h3>
+              <p class="only-desktop">Наведите камеру телефона на QR-код справа или откройте MAX на компьютере.</p>
+              <p class="only-mobile">Нажмите «Открыть бота в MAX» выше — откроется чат с ботом.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <div>
+              <h3>Нажмите «Начать», затем «Я мастер — настроить запись»</h3>
+              <p>Напишите, как вас будут видеть клиенты (например, «Анна, маникюр»), и выберите часовой пояс.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <div>
+              <h3>Добавьте услуги и график</h3>
+              <p>Бот подскажет: услуги можно прислать одним сообщением, каждую с новой строки — «Маникюр, 90, 1500». Потом рабочие дни и часы.
+                Всё можно поменять в кабинете.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">4</span>
+            <div>
+              <h3>Поделитесь своей ссылкой</h3>
+              <p>Бот пришлёт адрес вида <b>okoshko.website/anna_manikyur_123</b> — поставьте его в профиль соцсетей,
+                отправляйте клиентам вместо переписки.</p>
+            </div>
+          </li>
+        </ol>
+
+        <div class="qr-card">
+          <div class="only-desktop">
+            <img class="qr" src="/qr/max-bot.svg" width="220" height="220" alt="QR-код: бот «Окошко» в MAX">
+            <p class="qr-caption">Наведите камеру телефона</p>
+            <p class="muted small">MAX откроет чат с ботом «Окошко»</p>
+          </div>
+          <a class="btn" href="{{bot_url}}" target="_blank" rel="noopener">Открыть бота в MAX</a>
+          <p class="muted small qr-note">Нет MAX? Установите приложение с <a href="https://max.ru" target="_blank" rel="noopener">max.ru</a>
+            — это бесплатно.</p>
+        </div>
+      </div>
+
+      <div class="start-after">
+        <h2>Уже зарегистрированы?</h2>
+        <p>Кабинет открывается прямо в MAX: кнопка «Открыть кабинет» в меню бота. Чтобы работать с компьютера,
+          нажмите в боте «Кабинет на компьютере» — придёт ссылка для входа.</p>
+        <a class="btn ghost" href="/cabinet">Войти в кабинет на компьютере</a>
+      </div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-grid">
+      <div>
+        <a class="logo" href="/"><span class="logo-mark" aria-hidden="true"></span>Окошко</a>
+        <p class="muted">Онлайн-запись для частных мастеров</p>
+      </div>
+      <div class="foot-links">
+        <a href="/">О сервисе</a>
+        <a href="/privacy">Политика конфиденциальности</a>
+        {{email_link}}
+      </div>
+      <div class="muted small">{{owner_block}}</div>
+    </div>
+  </footer>
+</body>
+</html>

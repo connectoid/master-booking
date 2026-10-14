@@ -10,12 +10,13 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
 from app.channels import web_auth
 from app.config import Settings, get_settings
+from app.domain import qr
 from app.models import Channel
 from app.runtime import runtime
 
@@ -117,6 +118,26 @@ def _site_page(name: str, settings: Settings) -> HTMLResponse:
 @pages.get("/", include_in_schema=False)
 async def home(settings: Conf) -> HTMLResponse:
     return _site_page("index.html", settings)
+
+
+@pages.get("/start", include_in_schema=False)
+async def start_page(settings: Conf) -> HTMLResponse:
+    """«Создать кабинет»: шаги регистрации и QR-код на бота MAX."""
+    return _site_page("start.html", settings)
+
+
+_qr_cache: dict[str, str] = {}
+
+
+@pages.get("/qr/max-bot.svg", include_in_schema=False)
+async def max_bot_qr() -> Response:
+    url = max_bot_url()
+    if not url:
+        raise HTTPException(404, "Бот MAX не подключён")
+    if url not in _qr_cache:
+        _qr_cache[url] = qr.svg(url)
+    return Response(_qr_cache[url], media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @pages.get("/privacy", include_in_schema=False)
