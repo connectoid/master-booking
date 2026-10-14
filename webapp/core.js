@@ -13,9 +13,10 @@
   const startParam = String(unsafe.start_param || "").toLowerCase();
   // короткие адреса веб-версии: okoshko.website/<slug> и okoshko.website/cabinet
   const path = location.pathname.replace(/\/+$/, "");
-  const pathSlug = /^\/[a-z0-9_]{3,40}$/.test(path) && path !== "/app" && path !== "/cabinet" ? path.slice(1) : "";
+  const pathSlug = /^\/[a-z0-9_]{3,40}$/.test(path) && !["/app", "/cabinet", "/admin"].includes(path) ? path.slice(1) : "";
   // кабинет мастера: max.ru/<бот>?startapp=cabinet, /cabinet в браузере (или ?cabinet для отладки)
-  const mode = startParam === "cabinet" || query.has("cabinet") || path === "/cabinet" ? "cabinet" : "client";
+  const mode = path === "/admin" ? "admin"
+    : startParam === "cabinet" || query.has("cabinet") || path === "/cabinet" ? "cabinet" : "client";
 
   // localStorage может быть недоступен (приватный режим) — тогда просто не помним
   const store = {

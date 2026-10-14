@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     web_secret: str = ""
     web_master_session_days: int = 30
 
+    # Админка: ID администраторов в MAX через запятую (свой ID бот покажет по команде /myid)
+    admin_max_ids: str = ""
+    admin_session_days: int = 7
+
     # Главная и политика: реквизиты ИП (показываются в подвале и в политике)
     site_owner_name: str = ""   # «Иванов Иван Иванович» — без «ИП»
     site_inn: str = ""

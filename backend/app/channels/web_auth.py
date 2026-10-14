@@ -117,3 +117,39 @@ def verify_master_token(settings: Settings, token: str, now: float | None = None
     if int(m[2]) < _now(now):
         return None
     return int(m[1])
+
+
+# ---------- администратор ----------
+# Права проверяются при каждом запросе по ADMIN_MAX_IDS: убрали ID из .env — вход пропал.
+
+def admin_ids(settings: Settings) -> set[str]:
+    return {x.strip() for x in settings.admin_max_ids.split(",") if x.strip()}
+
+
+def admin_login_code(settings: Settings, admin_id: str, now: float | None = None) -> str:
+    payload = f"{admin_id}-{_b36(_now(now) + LOGIN_TTL_SEC)}"
+    return f"{payload}-{_sig(settings, 'al', payload, 16)}"
+
+
+def verify_admin_login_code(settings: Settings, code: str, now: float | None = None) -> str | None:
+    m = re.fullmatch(r"(\d{1,20})-([0-9a-z]{1,8})-([0-9a-f]{16})", code or "")
+    if not m or not _check(settings, "al", f"{m[1]}-{m[2]}", m[3], 16):
+        return None
+    if int(m[2], 36) < _now(now) or m[1] not in admin_ids(settings):
+        return None
+    return m[1]
+
+
+def admin_token(settings: Settings, admin_id: str, now: float | None = None) -> str:
+    exp = _now(now) + settings.admin_session_days * 24 * 3600
+    payload = f"{admin_id}.{exp}"
+    return f"{payload}.{_sig(settings, 'at', payload, 32)}"
+
+
+def verify_admin_token(settings: Settings, token: str, now: float | None = None) -> str | None:
+    m = re.fullmatch(r"(\d{1,20})\.(\d{1,12})\.([0-9a-f]{32})", token or "")
+    if not m or not _check(settings, "at", f"{m[1]}.{m[2]}", m[3], 32):
+        return None
+    if int(m[2]) < _now(now) or m[1] not in admin_ids(settings):
+        return None
+    return m[1]

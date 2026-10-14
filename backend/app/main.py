@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.api.admin import router as admin_router
 from app.api.cabinet import router as cabinet_router
 from app.api.public import router as public_router
 from app.api.web import pages as web_pages
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Окошко — запись к мастеру", lifespan=lifespan)
 app.include_router(public_router)
 app.include_router(cabinet_router)
+app.include_router(admin_router)
 app.include_router(web_router)
 app.include_router(max_router)
 app.include_router(telegram_router)

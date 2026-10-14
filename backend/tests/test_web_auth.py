@@ -47,3 +47,18 @@ def test_secret_falls_back_to_bot_token():
     b = Settings(max_bot_token="t2")
     token = web_auth.new_client_token(a)
     assert web_auth.verify_client_token(a, token) and web_auth.verify_client_token(b, token) is None
+
+
+def test_admin_codes():
+    s = Settings(web_secret="secret-1", admin_max_ids="555,900")
+    code = web_auth.admin_login_code(s, "555", now=1_000_000)
+    assert web_auth.verify_admin_login_code(s, code, now=1_000_000) == "555"
+    assert web_auth.verify_admin_login_code(s, code, now=1_000_000 + 601) is None
+    other = Settings(web_secret="secret-1", admin_max_ids="900")
+    assert web_auth.verify_admin_login_code(other, code, now=1_000_000) is None
+    token = web_auth.admin_token(s, "555", now=1_000_000)
+    assert web_auth.verify_admin_token(s, token, now=1_000_000 + 3600) == "555"
+    assert web_auth.verify_admin_token(other, token, now=1_000_000) is None
+    assert web_auth.verify_admin_token(s, token, now=1_000_000 + 8 * 24 * 3600) is None
+    # токен мастера не подходит как токен админа
+    assert web_auth.verify_admin_token(s, web_auth.master_token(s, 555, now=1_000_000), now=1_000_000) is None

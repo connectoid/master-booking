@@ -94,6 +94,10 @@ class Ctx:
 
 async def handle_event(ctx: Ctx) -> None:
     e = ctx.event
+    if e.kind == "text" and e.text.strip().lower() in ("/admin", "/myid"):
+        await service_command(ctx, e.text.strip().lower())
+        await ctx.session.commit()
+        return
     if e.kind == "callback" and e.payload.startswith("c:"):
         await client_callback(ctx)
     elif e.kind == "start" and e.payload:
@@ -105,6 +109,24 @@ async def handle_event(ctx: Ctx) -> None:
         else:
             await master_flow(ctx, master)
     await ctx.session.commit()
+
+
+# ---------- служебные команды ----------
+
+async def service_command(ctx: Ctx, command: str) -> None:
+    """/myid — показать свой ID (для ADMIN_MAX_IDS); /admin — ссылка входа в админку."""
+    uid = ctx.event.user_id
+    if command == "/myid":
+        await ctx.reply(f"Ваш ID в {ctx.channel.value.upper()}: {uid}")
+        return
+    settings = get_settings()
+    if ctx.channel != Channel.MAX or uid not in web_auth.admin_ids(settings):
+        await ctx.reply("Команда недоступна.")
+        return
+    base = settings.public_base_url.rstrip("/")
+    url = f"{base}/admin?login={web_auth.admin_login_code(settings, uid)}"
+    await ctx.reply("Вход в админку (ссылка действует 10 минут):\n" + url,
+                    [[Button("Открыть админку", url=url)]])
 
 
 # ---------- клиент ----------
@@ -155,6 +177,9 @@ async def client_start(ctx: Ctx, slug: str) -> None:
     master = await ms.get_master_by_slug(ctx.session, slug.lower())
     if master is None:
         await ctx.reply("Мастер по этой ссылке не найден. Проверьте ссылку или спросите мастера.")
+        return
+    if master.blocked_at is not None:
+        await ctx.reply("Онлайн-запись к этому мастеру сейчас недоступна. Свяжитесь с мастером напрямую.")
         return
     button = links.client_app_button(ctx.channel, "Выбрать время", master.slug)
     kb = [[button]] if button else None
@@ -215,7 +240,7 @@ async def onboarding(ctx: Ctx) -> None:
         await clear_state(ctx.session, ctx.channel, e.user_id)
         await set_state(ctx.session, ctx.channel, e.user_id, SVC_ADD)
         await ctx.reply(
-            f"Готово, {master.name}! Бесплатный период — {ms.TRIAL_DAYS} дней.\n\n"
+            f"Готово, {master.name}! На время запуска сервис бесплатный.\n\n"
             "Осталось два шага: услуги и график. Начнём с услуг.\n\n" + texts.SERVICES_HELP
         )
         return

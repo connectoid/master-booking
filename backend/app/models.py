@@ -82,6 +82,8 @@ class Master(Base):
     one_booking_per_day: Mapped[bool] = mapped_column(Boolean, server_default="false")
     trial_ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     paid_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))  # админ закрыл запись
+    admin_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = _now_default()
 
     accounts: Mapped[list[MasterAccount]] = relationship(back_populates="master")

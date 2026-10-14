@@ -69,6 +69,8 @@ async def get_master(session: AsyncSession, slug: str) -> Master:
     master = await session.scalar(select(Master).where(Master.slug == slug))
     if master is None:
         raise NotFound("Мастер не найден")
+    if master.blocked_at is not None:
+        raise NotFound("Онлайн-запись к этому мастеру сейчас недоступна")
     return master
 
 

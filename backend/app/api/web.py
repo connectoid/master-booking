@@ -81,6 +81,14 @@ async def master_login(body: MasterLogin, settings: Conf) -> TokenOut:
     return TokenOut(token=web_auth.master_token(settings, master_id))
 
 
+@router.post("/admin-login", response_model=TokenOut)
+async def admin_login(body: MasterLogin, settings: Conf) -> TokenOut:
+    admin_id = web_auth.verify_admin_login_code(settings, body.code.strip().lower())
+    if admin_id is None:
+        raise HTTPException(401, "Ссылка для входа устарела. Отправьте боту MAX команду /admin ещё раз.")
+    return TokenOut(token=web_auth.admin_token(settings, admin_id))
+
+
 # ---------- страницы ----------
 
 def _index() -> FileResponse:
@@ -147,6 +155,11 @@ async def privacy(settings: Conf) -> HTMLResponse:
 
 @pages.get("/cabinet", include_in_schema=False)
 async def cabinet_page() -> FileResponse:
+    return _index()
+
+
+@pages.get("/admin", include_in_schema=False)
+async def admin_page() -> FileResponse:
     return _index()
 
 

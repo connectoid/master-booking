@@ -21,7 +21,7 @@ from app.models import (
     WorkingInterval,
 )
 
-TRIAL_DAYS = 30
+TRIAL_DAYS = 30  # пока не используется: на время запуска сервис бесплатный
 
 async def generate_slug(session: AsyncSession, name: str) -> str:
     base = slug_base(name)
@@ -65,7 +65,6 @@ async def create_master(
         slug=await generate_slug(session, name),
         name=name[:120],
         timezone=timezone,
-        trial_ends_at=now + dt.timedelta(days=TRIAL_DAYS),
     )
     session.add(master)
     await session.flush()
