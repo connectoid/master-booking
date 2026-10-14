@@ -178,8 +178,9 @@
       state.error ? h("div", { class: "error" }, state.error) : null,
       h("button", { class: "btn", onclick: submit, disabled: state.sending },
         state.sending ? "Записываем…" : "Записаться"),
-      web ? h("p", { class: "small muted consent" },
-        "Нажимая «Записаться», вы соглашаетесь на обработку имени и телефона мастером для этой записи.") : null,
+      h("p", { class: "small muted consent" },
+        "Нажимая «Записаться», вы соглашаетесь на обработку ваших данных для записи и напоминаний — ",
+        h("a", { href: "/privacy", target: "_blank", rel: "noopener" }, "политика конфиденциальности"), "."),
     );
     return out;
   }

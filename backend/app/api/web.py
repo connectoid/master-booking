@@ -4,12 +4,13 @@
 """
 from __future__ import annotations
 
+import html
 import re
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
@@ -22,7 +23,9 @@ router = APIRouter(prefix="/api/web", tags=["web"])
 pages = APIRouter(tags=["web"])
 Conf = Annotated[Settings, Depends(get_settings)]
 
-WEBAPP_INDEX = Path(__file__).resolve().parents[3] / "webapp" / "index.html"
+WEBAPP_DIR = Path(__file__).resolve().parents[3] / "webapp"
+WEBAPP_INDEX = WEBAPP_DIR / "index.html"
+SITE_DIR = WEBAPP_DIR / "site"
 SLUG_RE = re.compile(r"[a-z0-9_]{3,40}")
 
 
@@ -81,6 +84,44 @@ async def master_login(body: MasterLogin, settings: Conf) -> TokenOut:
 
 def _index() -> FileResponse:
     return FileResponse(WEBAPP_INDEX, media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+def _site_vars(settings: Settings) -> dict[str, str]:
+    e = html.escape
+    parts = []
+    if settings.site_owner_name:
+        parts.append(f"ИП {settings.site_owner_name}")
+    if settings.site_inn:
+        parts.append(f"ИНН {settings.site_inn}")
+    if settings.site_ogrnip:
+        parts.append(f"ОГРНИП {settings.site_ogrnip}")
+    owner = ", ".join(parts)
+    email = settings.site_email
+    return {
+        "bot_url": e(max_bot_url() or "/cabinet"),
+        "owner_block": e(owner),
+        "owner_full": e(owner or "владелец сервиса okoshko.website"),
+        "email_text": (f'<a href="mailto:{e(email)}">{e(email)}</a>' if email
+                       else "сообщение боту «Окошко» в MAX"),
+        "email_link": f'<a href="mailto:{e(email)}">{e(email)}</a>' if email else "",
+    }
+
+
+def _site_page(name: str, settings: Settings) -> HTMLResponse:
+    text = (SITE_DIR / name).read_text(encoding="utf-8")
+    for key, value in _site_vars(settings).items():
+        text = text.replace("{{" + key + "}}", value)
+    return HTMLResponse(text, headers={"Cache-Control": "no-cache"})
+
+
+@pages.get("/", include_in_schema=False)
+async def home(settings: Conf) -> HTMLResponse:
+    return _site_page("index.html", settings)
+
+
+@pages.get("/privacy", include_in_schema=False)
+async def privacy(settings: Conf) -> HTMLResponse:
+    return _site_page("privacy.html", settings)
 
 
 @pages.get("/cabinet", include_in_schema=False)

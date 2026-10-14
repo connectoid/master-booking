@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     web_secret: str = ""
     web_master_session_days: int = 30
 
+    # Главная и политика: реквизиты ИП (показываются в подвале и в политике)
+    site_owner_name: str = ""   # «Иванов Иван Иванович» — без «ИП»
+    site_inn: str = ""
+    site_ogrnip: str = ""
+    site_email: str = ""        # почта для вопросов и запросов по персональным данным
+
     # Фоновая отправка напоминаний
     reminders_enabled: bool = True
     reminders_interval_sec: int = 30

@@ -98,6 +98,7 @@ app.include_router(telegram_router)
 WEBAPP_DIR = Path(__file__).resolve().parents[2] / "webapp"
 if WEBAPP_DIR.is_dir():
     app.mount("/app", StaticFiles(directory=WEBAPP_DIR, html=True), name="webapp")
+    app.mount("/site", StaticFiles(directory=WEBAPP_DIR / "site"), name="site")
 
 
 @app.get("/health")
